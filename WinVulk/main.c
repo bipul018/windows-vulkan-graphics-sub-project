@@ -1,4 +1,5 @@
 #include <Windows.h>
+
 #include <stdio.h>
 #include <string.h>
 
@@ -7,7 +8,15 @@
 
 #define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
+struct ExcessData {
+	int deltas;
+	UINT_PTR timer_id;
+
+};
+
 struct WindowData {
+	struct ExcessData ex_data;
+
 	HANDLE win_handle;
 	int width;
 	int height;
@@ -23,15 +32,22 @@ struct WindowData {
 	
 	uint32_t min_img_count;
 	VkSurfaceFormatKHR img_format;
+	VkSurfaceTransformFlagBitsKHR img_surface_transform_flag;
 	VkPresentModeKHR img_present_mode;
 	VkExtent2D img_swap_extent;
-	VkSwapchainKHR swapchain;
 
-	//All following have this img_count elements if successfully created
-	uint32_t img_count;
-	VkImage* images;
-	VkImageView* img_views;
-	VkFramebuffer* framebuffers;
+	//A struct of everything that depends on swapchain
+	struct SwapchainEntities {
+		VkSwapchainKHR swapchain;
+
+		//All following have this img_count elements if successfully created
+		uint32_t img_count;
+		VkImage* images;
+		VkImageView* img_views;
+		VkFramebuffer* framebuffers;
+	} curr_swapchain;
+
+	struct SwapchainEntities old_swapchain;
 
 	VkRenderPass render_pass;
 	VkPipelineLayout graphics_pipeline_layout;
@@ -39,11 +55,15 @@ struct WindowData {
 
 	VkCommandPool cmd_pool;
 
-	VkCommandBuffer cmd_buffer;
+	UINT curr_frame_in_flight;
+	UINT max_frames_in_flight;
+	VkCommandBuffer *cmd_buffer;
+	VkFence *in_flight_fences;
+	VkSemaphore *image_available_semaphores;
+	VkSemaphore *render_finished_semaphores;
 
-	VkFence in_flight_fence;
-	VkSemaphore image_available_semaphore;
-	VkSemaphore render_finished_semaphore;
+	VkBuffer vert_buff;
+	VkDeviceMemory vert_memory;
 
 };
 
@@ -282,6 +302,7 @@ int create_device(WindowData* p_win, struct SwapChainSupport* p_swapchain_detail
 
 		for (int jj = 0; jj < family_count; ++jj) {
 			int j = family_count - jj - 1;
+			j = jj;
 
 			VkBool32 present_capable;
 			vkGetPhysicalDeviceSurfaceSupportKHR(phy_devices[i], j, p_win->surface, &present_capable);
@@ -296,8 +317,8 @@ int create_device(WindowData* p_win, struct SwapChainSupport* p_swapchain_detail
 			}
 
 			//break if all is available
-			//if (graphics_avail && present_avail)
-			//	break;
+			if (graphics_avail && present_avail)
+				break;
 
 		}
 
@@ -400,7 +421,7 @@ int create_device(WindowData* p_win, struct SwapChainSupport* p_swapchain_detail
 	return 0;
 }
 
-int create_swapchain(WindowData* p_win, struct SwapChainSupport* p_swapchain_details) {
+int choose_swapchain_details(WindowData* p_win, struct SwapChainSupport* p_swapchain_details) {
 	int res = 0;
 	VkResult result = VK_SUCCESS;
 
@@ -424,21 +445,51 @@ int create_swapchain(WindowData* p_win, struct SwapChainSupport* p_swapchain_det
 	}
 	free(p_swapchain_details->present_modes);
 
-	//Choose swap extent
-	// ++++
-	//  TODO:: make dpi aware, ...
-	// ++++
-	//Now just use set width and height, also currently not checked anything from capabilities
-	//Also be aware of max and min extent set to numeric max of uint32_t
-	p_win->img_swap_extent.width = p_win->width;
-	p_win->img_swap_extent.height = p_win->height;
 
 	//Choose a img count
-	p_win->min_img_count = p_swapchain_details->capabilities.minImageCount + 1;
+	p_win->min_img_count = p_swapchain_details->capabilities.minImageCount + 3;
 	if (p_swapchain_details->capabilities.maxImageCount)
 		p_win->min_img_count = min(p_win->min_img_count, p_swapchain_details->capabilities.maxImageCount);
 
-	
+	p_win->img_surface_transform_flag = p_swapchain_details->capabilities.currentTransform;
+
+
+	return res;
+}
+
+int create_swapchain(WindowData* p_win) {
+	int res = 0;
+	VkResult result = VK_SUCCESS;
+
+	VkSurfaceCapabilitiesKHR surf_capa;
+
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+		p_win->phy_device,
+		p_win->surface,
+		&surf_capa);
+
+	//Choose swap extent
+	// ++++
+	//  TODO:: make dpi aware, ..., maybe not needed
+	// ++++
+	//Now just use set width and height, also currently not checked anything from capabilities
+	//Also be aware of max and min extent set to numeric max of uint32_t
+	if (surf_capa.currentExtent.width != -1 && surf_capa.currentExtent.height != -1) {
+
+		p_win->img_swap_extent = surf_capa.currentExtent;
+
+	}
+	else {
+		p_win->img_swap_extent.width = p_win->width;
+		p_win->img_swap_extent.height = p_win->height;
+
+	}
+
+	res--;
+	if (!p_win->img_swap_extent.width || !p_win->img_swap_extent.height) {
+		return res;
+	}
+
 	//An array of queue family indices used
 	uint32_t indices_array[] = { p_win->graphics_inx,p_win->present_inx };
 	
@@ -452,11 +503,11 @@ int create_swapchain(WindowData* p_win, struct SwapChainSupport* p_swapchain_det
 		.imageExtent = p_win->img_swap_extent,
 		.imageArrayLayers = 1,
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.preTransform = p_swapchain_details->capabilities.currentTransform,
+		.preTransform = p_win->img_surface_transform_flag,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode = p_win->img_present_mode,
 		.clipped = VK_TRUE,			//This should be false only if pixels have to re read
-		.oldSwapchain = VK_NULL_HANDLE,
+		.oldSwapchain = p_win->old_swapchain.swapchain,
 		.imageSharingMode = VK_SHARING_MODE_CONCURRENT,
 		//Here , for exclusive sharing mode it is  optional; else for concurrent, there has to be at
 		//least two different queue families, and all should be specified to share the images amoong
@@ -470,18 +521,20 @@ int create_swapchain(WindowData* p_win, struct SwapChainSupport* p_swapchain_det
 
 	
 
-	result = vkCreateSwapchainKHR(p_win->device, &create_info, NULL, &(p_win->swapchain));
+	result = vkCreateSwapchainKHR(p_win->device, &create_info, NULL, &(p_win->curr_swapchain.swapchain));
 
 	res--;
 	if (result != VK_SUCCESS)
 		return res;
 
-	result = vkGetSwapchainImagesKHR(p_win->device, p_win->swapchain, &(p_win->img_count), NULL);
+	result = vkGetSwapchainImagesKHR(p_win->device, p_win->curr_swapchain.swapchain,
+		&(p_win->curr_swapchain.img_count), NULL);
 	res--;
 	if (result != VK_SUCCESS)
 		return res;
-	p_win->images = malloc(p_win->img_count * sizeof(VkImage));
-	vkGetSwapchainImagesKHR(p_win->device, p_win->swapchain, &(p_win->img_count), p_win->images);
+	p_win->curr_swapchain.images = malloc(p_win->curr_swapchain.img_count * sizeof(VkImage));
+	vkGetSwapchainImagesKHR(p_win->device, p_win->curr_swapchain.swapchain,
+		&(p_win->curr_swapchain.img_count), p_win->curr_swapchain.images);
 
 	return 0;
 }
@@ -490,11 +543,11 @@ int create_image_views(WindowData* p_win) {
 	int res = 0;
 	VkResult result = VK_SUCCESS;
 
-	p_win->img_views = malloc(p_win->img_count * sizeof(VkImageView));
-	for (size_t i = 0; i < p_win->img_count; ++i) {
+	p_win->curr_swapchain.img_views = malloc(p_win->curr_swapchain.img_count * sizeof(VkImageView));
+	for (size_t i = 0; i < p_win->curr_swapchain.img_count; ++i) {
 		VkImageViewCreateInfo create_info = {
 			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.image = p_win->images[i],
+			.image = p_win->curr_swapchain.images[i],
 
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
 			.format = p_win->img_format.format,
@@ -516,7 +569,7 @@ int create_image_views(WindowData* p_win) {
 
 		};
 
-		result = vkCreateImageView(p_win->device, &create_info, NULL, p_win->img_views + i);
+		result = vkCreateImageView(p_win->device, &create_info, NULL, p_win->curr_swapchain.img_views + i);
 		if (result != VK_SUCCESS)
 			break;
 
@@ -524,9 +577,9 @@ int create_image_views(WindowData* p_win) {
 
 	res--;
 	if (result != VK_SUCCESS) {
-		free(p_win->img_views);
-		p_win->img_views = NULL;
-		p_win->img_count = 0;
+		free(p_win->curr_swapchain.img_views);
+		p_win->curr_swapchain.img_views = NULL;
+		p_win->curr_swapchain.img_count = 0;
 		return res;
 	}
 
@@ -534,7 +587,6 @@ int create_image_views(WindowData* p_win) {
 }
 
 uint32_t* read_bytecode_file(const char* file_name, size_t * file_size) {
-
 	FILE* file = fopen(file_name, "rb");
 
 	if (!file) {
@@ -667,7 +719,7 @@ int create_graphics_pipeline(WindowData* p_win) {
 		return res;
 
 	uint32_t* frag_shader_code = read_bytecode_file("shaders/out/demo.frag.spv", &frag_shader_size);
-	
+
 	res--;
 	if (!frag_shader_code) {
 		free(vert_shader_code);
@@ -683,7 +735,7 @@ int create_graphics_pipeline(WindowData* p_win) {
 		return res;
 	}
 	free(vert_shader_code);
-	
+
 	res--;
 	if (create_shader_module(p_win->device, frag_shader_code, frag_shader_size, &frag_shader) < 0) {
 		vkDestroyShaderModule(p_win->device, vert_shader, NULL);
@@ -710,8 +762,26 @@ int create_graphics_pipeline(WindowData* p_win) {
 		vert_shader_stage,frag_shader_stage
 	};
 
+	VkVertexInputAttributeDescription vert_input_attr = {
+		.offset = 0,
+		.binding = 0,
+		.location = 0,
+		.format = VK_FORMAT_R32G32_SFLOAT
+	};
+
+	VkVertexInputBindingDescription vert_input_bind = {
+		.binding = 0,
+		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+		.stride = sizeof(float) * 2
+	};
+
+
 	VkPipelineVertexInputStateCreateInfo vert_input_info = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		.vertexAttributeDescriptionCount = 1,
+		.pVertexAttributeDescriptions = &vert_input_attr,
+		.vertexBindingDescriptionCount = 1,
+		.pVertexBindingDescriptions = &vert_input_bind,
 	};
 
 	VkPipelineInputAssemblyStateCreateInfo input_assem_info = {
@@ -769,7 +839,7 @@ int create_graphics_pipeline(WindowData* p_win) {
 
 	//Place for depth/stencil testing 
 
-	
+
 	//Below differs for multiple frameuffers
 	VkPipelineColorBlendAttachmentState color_blend_attach = {
 		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
@@ -786,10 +856,19 @@ int create_graphics_pipeline(WindowData* p_win) {
 		.attachmentCount = 1
 	};
 
+	VkPushConstantRange push_const_range = {
+		.size = sizeof(float),
+		.offset = 0,
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT
+	};
+
+
 	VkPipelineLayoutCreateInfo layout_info = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.setLayoutCount = 0,
-		.pushConstantRangeCount = 0
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &push_const_range,
+		
 	};
 
 	result = vkCreatePipelineLayout(p_win->device, &layout_info, NULL, &(p_win->graphics_pipeline_layout));
@@ -842,15 +921,15 @@ int create_framebuffers(WindowData* p_win) {
 	VkResult result = VK_SUCCESS;
 	int res = 0;
 
-	p_win->framebuffers = malloc(p_win->img_count * sizeof(VkFramebuffer));
+	p_win->curr_swapchain.framebuffers = malloc(p_win->curr_swapchain.img_count * sizeof(VkFramebuffer));
 
 	res--;
-	if (!p_win->framebuffers)
+	if (!p_win->curr_swapchain.framebuffers)
 		goto alloc_framebuffers;
 
-	for (int i = 0; i < p_win->img_count; ++i) {
+	for (int i = 0; i < p_win->curr_swapchain.img_count; ++i) {
 		VkImageView img_attachments[] = {
-			p_win->img_views[i]
+			p_win->curr_swapchain.img_views[i]
 		};
 		VkFramebufferCreateInfo create_info = {
 			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -861,7 +940,7 @@ int create_framebuffers(WindowData* p_win) {
 			.height = p_win->img_swap_extent.height,
 			.layers = 1
 		};
-		result = vkCreateFramebuffer(p_win->device, &create_info, NULL, &(p_win->framebuffers[i]));
+		result = vkCreateFramebuffer(p_win->device, &create_info, NULL, &(p_win->curr_swapchain.framebuffers[i]));
 		res--;
 		if (result != VK_SUCCESS)
 			goto create_framebuffers;
@@ -893,33 +972,52 @@ int create_command_pool(WindowData* p_win) {
 	return res;
 }
 
-int create_command_buffer(WindowData* p_win) {
+int create_command_buffers(WindowData* p_win) {
 
 	VkResult result = VK_SUCCESS;
 	int res = 0;
+
+	p_win->cmd_buffer = malloc(p_win->max_frames_in_flight * sizeof(VkCommandBuffer));
+	res--;
+	if (!p_win->cmd_buffer)
+		return res;
 
 	VkCommandBufferAllocateInfo alloc_info = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 		.commandPool = p_win->cmd_pool,
 		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1
+		.commandBufferCount = p_win->max_frames_in_flight,
 	};
 
-	result = vkAllocateCommandBuffers(p_win->device, &alloc_info, &(p_win->cmd_buffer));
+	result = vkAllocateCommandBuffers(p_win->device, &alloc_info, p_win->cmd_buffer);
 	res--;
 	if (result != VK_SUCCESS)
 		goto alloc_cmd_buffer;
 
 
-
 	res = 0;
-	alloc_cmd_buffer:
+alloc_cmd_buffer:
 	return res;
 }
 
 int create_sync_objects(WindowData* p_win) {
 	VkResult result = VK_SUCCESS;
 	int res = 0;
+
+	p_win->in_flight_fences = malloc(p_win->max_frames_in_flight * sizeof(VkFence));
+	res--;
+	if (!p_win->in_flight_fences)
+		goto clear;
+
+	p_win->render_finished_semaphores = malloc(p_win->max_frames_in_flight * sizeof(VkSemaphore));
+	res--;
+	if (!p_win->render_finished_semaphores)
+		goto clear;
+
+	p_win->image_available_semaphores = malloc(p_win->max_frames_in_flight * sizeof(VkSemaphore));
+	res--;
+	if (!p_win->image_available_semaphores)
+		goto clear;
 
 	VkSemaphoreCreateInfo sema_create_info = {
 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -930,39 +1028,45 @@ int create_sync_objects(WindowData* p_win) {
 		.flags = VK_FENCE_CREATE_SIGNALED_BIT,
 	};
 
-	result = vkCreateFence(p_win->device, &fence_create_info, NULL, &(p_win->in_flight_fence));
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
+	for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
 
-	result = vkCreateSemaphore(p_win->device, &sema_create_info, NULL, &(p_win->image_available_semaphore));
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
+		result = vkCreateFence(p_win->device, &fence_create_info, NULL, p_win->in_flight_fences + i);
+		res--;
+		if (result != VK_SUCCESS)
+			return res;
 
-	result = vkCreateSemaphore(p_win->device, &sema_create_info, NULL, &(p_win->render_finished_semaphore));
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
+		result = vkCreateSemaphore(p_win->device, &sema_create_info, NULL, p_win->image_available_semaphores + i);
+		res--;
+		if (result != VK_SUCCESS)
+			return res;
 
+		result = vkCreateSemaphore(p_win->device, &sema_create_info, NULL, p_win->render_finished_semaphores + i);
+		res--;
+		if (result != VK_SUCCESS)
+			return res;
+	}
 	res = 0;
 
+clear:
 	return res;
 }
 
-
-
 int clear_sync_objects(WindowData* p_win) {
 
-	vkDestroySemaphore(p_win->device, p_win->render_finished_semaphore, NULL);
-	vkDestroySemaphore(p_win->device, p_win->image_available_semaphore, NULL);
-	vkDestroyFence(p_win->device, p_win->in_flight_fence, NULL);
+	for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+		vkDestroySemaphore(p_win->device, p_win->render_finished_semaphores[i], NULL);
+		vkDestroySemaphore(p_win->device, p_win->image_available_semaphores[i], NULL);
+		vkDestroyFence(p_win->device, p_win->in_flight_fences[i], NULL);
+	}
+	free(p_win->in_flight_fences);
+	free(p_win->image_available_semaphores);
+	free(p_win->render_finished_semaphores);
 	
 	return 0;
 }
 
-int clear_command_buffer(WindowData* p_win) {
-
+int clear_command_buffers(WindowData* p_win) {
+	free(p_win->cmd_buffer);
 	return 0;
 }
 
@@ -971,11 +1075,12 @@ int clear_command_pool(WindowData* p_win) {
 	return 0;
 }
 
-int clear_framebuffers(WindowData* p_win) {
-	for (int i = 0; i < p_win->img_count; ++i) {
-		vkDestroyFramebuffer(p_win->device, p_win->framebuffers[i], NULL);
+int clear_framebuffers(WindowData* p_win, struct SwapchainEntities * entities) {
+	for (int i = 0; i < entities->img_count; ++i) {
+		vkDestroyFramebuffer(p_win->device, entities->framebuffers[i], NULL);
 	}
-	free(p_win->framebuffers);
+	free(entities->framebuffers);
+	entities->framebuffers = NULL;
 	return 0;
 }
 
@@ -991,20 +1096,23 @@ int clear_render_pass(WindowData* p_win) {
 	return 0;
 }
 
-int clear_image_views(WindowData* p_win) {
+int clear_image_views(WindowData* p_win, struct SwapchainEntities * entities) {
 
-	for (int i = 0; i < p_win->img_count; ++i) {
-		vkDestroyImageView(p_win->device, p_win->img_views[i], NULL);
+	for (int i = 0; i < entities->img_count; ++i) {
+		vkDestroyImageView(p_win->device, entities->img_views[i], NULL);
 	}
-	free(p_win->img_views);
-
+	free(entities->img_views);
+	entities->img_views = NULL;
 	return 0;
 }
 
-int clear_swapchain(WindowData* p_win) {
-	free(p_win->images);
-	p_win->images = NULL;
-	vkDestroySwapchainKHR(p_win->device, p_win->swapchain, NULL);
+int clear_swapchain(WindowData* p_win, struct SwapchainEntities * entities) {
+	free(entities->images);
+	entities->images = NULL;
+	vkDestroySwapchainKHR(p_win->device, entities->swapchain, NULL);
+	entities->images = NULL;
+	entities->swapchain = NULL;
+	entities->img_count = 0;
 	return 0;
 }
 
@@ -1020,6 +1128,42 @@ int clear_instance() {
 	return 0;
 }
 
+
+int recreate_swapchain(WindowData* p_win) {
+	int res = 0;
+
+	
+	if (p_win->old_swapchain.swapchain) {
+		if (p_win->old_swapchain.img_count > 0)
+			vkDeviceWaitIdle(p_win->device);
+		p_win->old_swapchain.img_count = p_win->curr_swapchain.img_count;
+		clear_framebuffers(p_win, &p_win->old_swapchain);
+		clear_image_views(p_win, &p_win->old_swapchain);
+		clear_swapchain(p_win, &p_win->old_swapchain);
+	}
+
+	p_win->old_swapchain = p_win->curr_swapchain;
+
+	res--;
+	if (create_swapchain(p_win) < 0) {
+		//Return if any error, like zero framebuffer size, with swapchain unchanged
+		p_win->curr_swapchain = p_win->old_swapchain;
+		p_win->old_swapchain = (struct SwapchainEntities){ 0 };
+		return res;
+	}
+
+	res--;
+	if (create_image_views(p_win) < 0)
+		return res;
+
+	res--;
+	if (create_framebuffers(p_win) < 0)
+		return res;
+	
+
+
+	return 0;
+}
 
 int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32_t img_inx) {
 	VkResult result = VK_SUCCESS;
@@ -1040,7 +1184,7 @@ int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32
 	VkRenderPassBeginInfo rndr_begin_info = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass = p_win->render_pass,
-		.framebuffer = p_win->framebuffers[img_inx],
+		.framebuffer = p_win->curr_swapchain.framebuffers[img_inx],
 		.renderArea = {
 			.offset = {0,0},
 			.extent = p_win->img_swap_extent
@@ -1068,7 +1212,13 @@ int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32
 	};
 	vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
 
-	vkCmdDraw(cmd_buffer, 3, 1, 0, 0);
+	float del = p_win->ex_data.deltas / 256.f;
+	vkCmdPushConstants(cmd_buffer, p_win->graphics_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &del);
+
+	VkDeviceSize offsets = 0;
+	vkCmdBindVertexBuffers(cmd_buffer, 0, 1, &p_win->vert_buff, &offsets);
+
+	vkCmdDraw(cmd_buffer, 6, 1, 0, 0);
 	vkCmdEndRenderPass(cmd_buffer);
 	result = vkEndCommandBuffer(cmd_buffer);
 	res--;
@@ -1086,22 +1236,33 @@ int draw_frame(WindowData* p_win) {
 	VkResult result = VK_SUCCESS;
 	int res = 0;
 
-	vkWaitForFences(p_win->device, 1, &(p_win->in_flight_fence), VK_TRUE, UINT64_MAX);
-	vkResetFences(p_win->device, 1, &(p_win->in_flight_fence));
+	result = vkWaitForFences(p_win->device, 1, p_win->in_flight_fences+ p_win->curr_frame_in_flight,
+		VK_TRUE, UINT64_MAX);
+
+	res--;
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || !p_win->img_swap_extent.width || !p_win->img_swap_extent.height ) {
+		if (recreate_swapchain(p_win) < 0)
+			return res;
+		return 0;
+	}
+
+
+
+	vkResetFences(p_win->device, 1, p_win->in_flight_fences + p_win->curr_frame_in_flight);
 
 	uint32_t img_inx;
-	vkAcquireNextImageKHR(p_win->device, p_win->swapchain, UINT64_MAX,
-		p_win->image_available_semaphore, VK_NULL_HANDLE, &img_inx);
+	vkAcquireNextImageKHR(p_win->device, p_win->curr_swapchain.swapchain, UINT64_MAX,
+		p_win->image_available_semaphores[p_win->curr_frame_in_flight], VK_NULL_HANDLE, &img_inx);
 
-	vkResetCommandBuffer(p_win->cmd_buffer, 0);
-	record_command_buffers(p_win, p_win->cmd_buffer, img_inx);
+	vkResetCommandBuffer(p_win->cmd_buffer[p_win->curr_frame_in_flight], 0);
+	record_command_buffers(p_win, p_win->cmd_buffer[p_win->curr_frame_in_flight], img_inx);
 
 
 	VkSemaphore signal_semaphores[] = {
-		p_win->render_finished_semaphore
+		p_win->render_finished_semaphores[p_win->curr_frame_in_flight]
 	};
 	VkSemaphore wait_semaphores[] = {
-		p_win->image_available_semaphore
+		p_win->image_available_semaphores[p_win->curr_frame_in_flight]
 	};
 	VkPipelineStageFlags wait_stages[] = {
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
@@ -1114,18 +1275,19 @@ int draw_frame(WindowData* p_win) {
 		.pWaitSemaphores = wait_semaphores,
 		.pWaitDstStageMask = wait_stages,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &(p_win->cmd_buffer),
+		.pCommandBuffers = &(p_win->cmd_buffer[p_win->curr_frame_in_flight]),
 		.signalSemaphoreCount = COUNT_OF(signal_semaphores),
 		.pSignalSemaphores = signal_semaphores
 	};
 
-	result = vkQueueSubmit(p_win->graphics_queue, 1, &submit_info, p_win->in_flight_fence);
+	result = vkQueueSubmit(p_win->graphics_queue, 1, &submit_info,
+		p_win->in_flight_fences[p_win->curr_frame_in_flight]);
 	res--;
 	if (result != VK_SUCCESS)
 		return res;
 
 	VkSwapchainKHR swapchains[] = {
-		p_win->swapchain
+		p_win->curr_swapchain.swapchain
 	};
 
 	VkPresentInfoKHR present_info = {
@@ -1138,7 +1300,17 @@ int draw_frame(WindowData* p_win) {
 	};
 
 	result = vkQueuePresentKHR(p_win->present_queue, &present_info);
+	
+	res--;
+	if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR && result != VK_ERROR_OUT_OF_DATE_KHR)
+		return res;
 
+	p_win->curr_frame_in_flight = (p_win->curr_frame_in_flight + 1) % p_win->max_frames_in_flight;
+
+	res--;
+	if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR)
+		if (recreate_swapchain(p_win) < 0)
+			return res;
 
 	res = 0;
 
@@ -1152,8 +1324,10 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	if (msg == WM_CREATE) {
 		CREATESTRUCT* cr_data = (CREATESTRUCT*)lparam;
 		pdata = (WindowData*)cr_data->lpCreateParams;
-		pdata->win_handle = h_wnd;
 		SetWindowLongPtr(h_wnd, GWLP_USERDATA, (LONG_PTR)pdata);
+		
+		*pdata = (WindowData){ 0 };
+		pdata->win_handle = h_wnd;
 
 		RECT client_area;
 		GetClientRect(h_wnd, &client_area);
@@ -1167,6 +1341,9 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		};
 		int res = 0;
 
+		pdata->max_frames_in_flight = 2;
+		pdata->curr_frame_in_flight = 0;
+
 		res--;
 		if (vkCreateWin32SurfaceKHR(g_vk_instance, &surface_create_info, NULL, &(pdata->surface)) != VK_SUCCESS)
 			return res;
@@ -1175,7 +1352,11 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		if (create_device(pdata, &swap_support) < 0)
 			return res;
 		res--;
-		if (create_swapchain(pdata, &swap_support) < 0) {
+		if (choose_swapchain_details(pdata, &swap_support) < 0) {
+			return  res;
+		}
+		res--;
+		if (create_swapchain(pdata) < 0) {
 			return  res;
 		}
 		res--;
@@ -1196,11 +1377,74 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		if (create_command_pool(pdata) < 0)
 			return res;
 		res--;
-		if (create_command_buffer(pdata) < 0)
+		if (create_command_buffers(pdata) < 0)
 			return res;
 		res--;
 		if (create_sync_objects(pdata) < 0)
 			return res;
+
+		//Playground for stuff
+		VkResult result = VK_SUCCESS;
+
+		VkPhysicalDeviceMemoryProperties mem_props;
+
+		vkGetPhysicalDeviceMemoryProperties(pdata->phy_device, &mem_props);
+
+		VkBufferCreateInfo info = {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = 1024,
+			.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+		};
+
+		uint32_t reqs = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+		result = vkCreateBuffer(pdata->device, &info, NULL, &pdata->vert_buff);
+
+		res--;
+		if (result != VK_SUCCESS)
+			return res;
+
+		VkMemoryRequirements buff_mem_req;
+
+		vkGetBufferMemoryRequirements(pdata->device, pdata->vert_buff, &buff_mem_req);
+
+
+		int32_t mem_inx = -1;
+		for (int i = 0; i < mem_props.memoryTypeCount; ++i) {
+			if (((1 << i) & buff_mem_req.memoryTypeBits) && (reqs == (reqs & mem_props.memoryTypes[i].propertyFlags))) {
+				mem_inx = i;
+				break;
+			}
+		}
+
+		VkMemoryAllocateInfo alloc_info = {
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = 4096,
+			.memoryTypeIndex = mem_inx,
+		};
+
+		result = vkAllocateMemory(pdata->device, &alloc_info, NULL, &pdata->vert_memory);
+
+		res--;
+		if (result != VK_SUCCESS)
+			return res;
+
+
+		vkBindBufferMemory(pdata->device, pdata->vert_buff, pdata->vert_memory, 0);
+
+		float* ptr;
+		vkMapMemory(pdata->device, pdata->vert_memory, 0, 1024, 0, &ptr);
+		float memdat[] = { -0.5, -0.5,0.5, 0.5,-0.5, 0.5 ,
+		0.5, 0.5,-0.5, -0.5,0.5, -0.5 };
+		memcpy(ptr, memdat, sizeof(memdat));
+		vkUnmapMemory(pdata->device, pdata->vert_memory);
+
+		pdata->ex_data.deltas = 0;
+		
+		pdata->ex_data.timer_id = SetTimer(h_wnd, 111, 10, NULL);
 	}
 	else {
 		pdata = (WindowData*)GetWindowLongPtr(h_wnd, GWLP_USERDATA);
@@ -1209,16 +1453,27 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	if (pdata) {
 
 		if (msg == WM_DESTROY) {
+			KillTimer(h_wnd, pdata->ex_data.timer_id);
+			
 			vkDeviceWaitIdle(pdata->device);
+			vkDestroyBuffer(pdata->device, pdata->vert_buff, NULL);
+			vkFreeMemory(pdata->device, pdata->vert_memory, NULL);
 
 			clear_sync_objects(pdata);
-			clear_command_buffer(pdata);
+			clear_command_buffers(pdata);
 			clear_command_pool(pdata);
-			clear_framebuffers(pdata);
+			pdata->old_swapchain.img_count = pdata->curr_swapchain.img_count;
+			if (pdata->old_swapchain.framebuffers)
+				clear_framebuffers(pdata, &pdata->old_swapchain);
+			clear_framebuffers(pdata,&pdata->curr_swapchain);
 			clear_pipeline(pdata);
 			clear_render_pass(pdata);
-			clear_image_views(pdata);
-			clear_swapchain(pdata);
+			if (pdata->old_swapchain.img_views)
+				clear_image_views(pdata, &pdata->old_swapchain);
+			clear_image_views(pdata,&pdata->curr_swapchain);
+			if (pdata->old_swapchain.swapchain)
+				clear_swapchain(pdata, &pdata->old_swapchain);
+			clear_swapchain(pdata,&pdata->curr_swapchain);
 			clear_device(pdata);
 			vkDestroySurfaceKHR(g_vk_instance, pdata->surface, NULL);
 			PostQuitMessage(0);
@@ -1226,6 +1481,24 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		}
 		if (msg == WM_PAINT) {
 			draw_frame(pdata);
+			pdata->ex_data.deltas = (pdata->ex_data.deltas + 257) % (2 * 256) - 256;
+		}
+		if (msg == WM_TIMER) {
+			if (wparam == pdata->ex_data.timer_id) {
+				InvalidateRect(h_wnd, NULL, TRUE);
+			}
+		}
+		if (msg == WM_SIZE) {
+
+			RECT client_area;
+			GetClientRect(h_wnd, &client_area);
+			pdata->width = client_area.right;
+			pdata->height = client_area.bottom;
+			//recreate_swapchain(pdata);
+		}
+		if (msg == WM_SETCURSOR) {
+			HCURSOR cursor = LoadCursor(NULL, IDC_UPARROW);
+			SetCursor(cursor);
 		}
 	}
 
@@ -1250,7 +1523,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 
 	WindowData wnd_data = { 0 };
-	if (!CreateWindowEx(0, wndclass_name, L"Window", WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME, 10, 10, 600, 600, NULL, NULL, h_instance, &wnd_data))
+	if (!CreateWindowEx(0, wndclass_name, L"Window", WS_OVERLAPPEDWINDOW , 10, 10, 600, 600, NULL, NULL, h_instance, &wnd_data))
 		return -1;
 
 	ShowWindow(wnd_data.win_handle, SW_SHOW);

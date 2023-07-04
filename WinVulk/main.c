@@ -65,6 +65,12 @@ struct WindowData {
 	VkBuffer vert_buff;
 	VkDeviceMemory vert_memory;
 
+	//Temporary members
+	VkDescriptorSetLayout descriptor_layout;
+	VkBuffer *uniform_buffer;
+	VkDescriptorPool descriptor_pool;
+	VkDescriptorSet* descriptor_sets;
+
 };
 
 typedef struct WindowData WindowData;
@@ -865,10 +871,10 @@ int create_graphics_pipeline(WindowData* p_win) {
 
 	VkPipelineLayoutCreateInfo layout_info = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 0,
 		.pushConstantRangeCount = 1,
 		.pPushConstantRanges = &push_const_range,
-		
+		.setLayoutCount = 1,
+		.pSetLayouts = &p_win->descriptor_layout
 	};
 
 	result = vkCreatePipelineLayout(p_win->device, &layout_info, NULL, &(p_win->graphics_pipeline_layout));
@@ -1051,6 +1057,45 @@ clear:
 	return res;
 }
 
+int create_descriptor_layout(WindowData* p_win) {
+
+	VkResult result = VK_SUCCESS;
+	int res = 0;
+
+
+	VkDescriptorSetLayoutBinding bind = {
+		.binding = 0,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+	};
+
+	VkDescriptorSetLayoutCreateInfo create_info = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindings = &bind,
+	};
+
+
+	result = vkCreateDescriptorSetLayout(p_win->device, &create_info, NULL, &p_win->descriptor_layout);
+	res--;
+	if (result != VK_SUCCESS)
+		return res;
+
+
+	res = 0;
+
+
+	return res;
+
+}
+
+
+int clear_descriptor_layout(WindowData* p_win) {
+	vkDestroyDescriptorSetLayout(p_win->device, p_win->descriptor_layout, NULL);
+	return 0;
+}
+
 int clear_sync_objects(WindowData* p_win) {
 
 	for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
@@ -1165,7 +1210,7 @@ int recreate_swapchain(WindowData* p_win) {
 	return 0;
 }
 
-int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32_t img_inx) {
+int record_command_buffers(WindowData* p_win, uint32_t img_inx, uint32_t frame_inx) {
 	VkResult result = VK_SUCCESS;
 	int res = 0;
 
@@ -1174,7 +1219,7 @@ int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32
 
 	};
 
-	result = vkBeginCommandBuffer(cmd_buffer, &cmd_begin_info);
+	result = vkBeginCommandBuffer(p_win->cmd_buffer[frame_inx], &cmd_begin_info);
 	res--;
 	if (result != VK_SUCCESS)
 		return res;
@@ -1193,8 +1238,8 @@ int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32
 		.pClearValues = &img_clear_col,
 
 	};
-	vkCmdBeginRenderPass(cmd_buffer, &rndr_begin_info, VK_SUBPASS_CONTENTS_INLINE);
-	vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_win->graphics_pipeline);
+	vkCmdBeginRenderPass(p_win->cmd_buffer[frame_inx], &rndr_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBindPipeline(p_win->cmd_buffer[frame_inx], VK_PIPELINE_BIND_POINT_GRAPHICS, p_win->graphics_pipeline);
 
 	VkViewport viewport = {
 		.x = 0.f,
@@ -1204,23 +1249,36 @@ int record_command_buffers(WindowData* p_win, VkCommandBuffer cmd_buffer, uint32
 		.minDepth = 0.f,
 		.maxDepth = 1.f,
 	};
-	vkCmdSetViewport(cmd_buffer, 0, 1, &viewport);
+	vkCmdSetViewport(p_win->cmd_buffer[frame_inx], 0, 1, &viewport);
 
 	VkRect2D scissor = {
 		.offset = {0,0},
 		.extent = p_win->img_swap_extent,
 	};
-	vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
+	vkCmdSetScissor(p_win->cmd_buffer[frame_inx], 0, 1, &scissor);
 
-	float del = p_win->ex_data.deltas / 256.f;
-	vkCmdPushConstants(cmd_buffer, p_win->graphics_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &del);
+	float* del = NULL;
+
+	vkMapMemory(p_win->device, p_win->vert_memory, 1024 * frame_inx + 1024, sizeof(float), 0, &del);
+	*del = p_win->ex_data.deltas / 256.f;
+	vkUnmapMemory(p_win->device, p_win->vert_memory);
+
+	vkCmdBindDescriptorSets(p_win->cmd_buffer[frame_inx],
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		p_win->graphics_pipeline_layout,
+		0, 1, p_win->descriptor_sets + frame_inx,
+		0, NULL);
+
+	//vkCmdPushConstants(p_win->cmd_buffer[frame_inx],
+	//	p_win->graphics_pipeline_layout,
+	//	VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &del);
 
 	VkDeviceSize offsets = 0;
-	vkCmdBindVertexBuffers(cmd_buffer, 0, 1, &p_win->vert_buff, &offsets);
+	vkCmdBindVertexBuffers(p_win->cmd_buffer[frame_inx], 0, 1, &p_win->vert_buff, &offsets);
 
-	vkCmdDraw(cmd_buffer, 6, 1, 0, 0);
-	vkCmdEndRenderPass(cmd_buffer);
-	result = vkEndCommandBuffer(cmd_buffer);
+	vkCmdDraw(p_win->cmd_buffer[frame_inx], 6, 1, 0, 0);
+	vkCmdEndRenderPass(p_win->cmd_buffer[frame_inx]);
+	result = vkEndCommandBuffer(p_win->cmd_buffer[frame_inx]);
 	res--;
 	if (result != VK_SUCCESS)
 		return res;
@@ -1255,7 +1313,7 @@ int draw_frame(WindowData* p_win) {
 		p_win->image_available_semaphores[p_win->curr_frame_in_flight], VK_NULL_HANDLE, &img_inx);
 
 	vkResetCommandBuffer(p_win->cmd_buffer[p_win->curr_frame_in_flight], 0);
-	record_command_buffers(p_win, p_win->cmd_buffer[p_win->curr_frame_in_flight], img_inx);
+	record_command_buffers(p_win,img_inx , p_win->curr_frame_in_flight);
 
 
 	VkSemaphore signal_semaphores[] = {
@@ -1319,20 +1377,20 @@ int draw_frame(WindowData* p_win) {
 
 LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
-	WindowData* pdata = NULL;
+	WindowData* p_win = NULL;
 
 	if (msg == WM_CREATE) {
 		CREATESTRUCT* cr_data = (CREATESTRUCT*)lparam;
-		pdata = (WindowData*)cr_data->lpCreateParams;
-		SetWindowLongPtr(h_wnd, GWLP_USERDATA, (LONG_PTR)pdata);
+		p_win = (WindowData*)cr_data->lpCreateParams;
+		SetWindowLongPtr(h_wnd, GWLP_USERDATA, (LONG_PTR)p_win);
 		
-		*pdata = (WindowData){ 0 };
-		pdata->win_handle = h_wnd;
+		*p_win = (WindowData){ 0 };
+		p_win->win_handle = h_wnd;
 
 		RECT client_area;
 		GetClientRect(h_wnd, &client_area);
-		pdata->width = client_area.right;
-		pdata->height = client_area.bottom;
+		p_win->width = client_area.right;
+		p_win->height = client_area.bottom;
 
 		VkWin32SurfaceCreateInfoKHR surface_create_info = {
 			.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -1341,54 +1399,62 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 		};
 		int res = 0;
 
-		pdata->max_frames_in_flight = 2;
-		pdata->curr_frame_in_flight = 0;
+		p_win->max_frames_in_flight = 2;
+		p_win->curr_frame_in_flight = 0;
 
 		res--;
-		if (vkCreateWin32SurfaceKHR(g_vk_instance, &surface_create_info, NULL, &(pdata->surface)) != VK_SUCCESS)
+		if (vkCreateWin32SurfaceKHR(g_vk_instance, &surface_create_info, NULL, &(p_win->surface)) != VK_SUCCESS)
 			return res;
 		struct SwapChainSupport swap_support;
 		res--;
-		if (create_device(pdata, &swap_support) < 0)
+		if (create_device(p_win, &swap_support) < 0)
 			return res;
 		res--;
-		if (choose_swapchain_details(pdata, &swap_support) < 0) {
+		if (choose_swapchain_details(p_win, &swap_support) < 0) {
 			return  res;
 		}
 		res--;
-		if (create_swapchain(pdata) < 0) {
+		if (create_swapchain(p_win) < 0) {
 			return  res;
 		}
 		res--;
-		if (create_image_views(pdata) < 0) {
+		if (create_image_views(p_win) < 0) {
 			return res;
 		}
 		res--;
-		if (create_render_pass(pdata) < 0)
+		if (create_render_pass(p_win) < 0)
 			return res;
 		res--;
-		if (create_graphics_pipeline(pdata) < 0) {
+		if (create_descriptor_layout(p_win) < 0)
+			return res;
+		res--;
+		if (create_graphics_pipeline(p_win) < 0) {
 			return res;
 		}
 		res--;
-		if (create_framebuffers(pdata) < 0)
+		if (create_framebuffers(p_win) < 0)
 			return res;
 		res--;
-		if (create_command_pool(pdata) < 0)
+		if (create_command_pool(p_win) < 0)
 			return res;
 		res--;
-		if (create_command_buffers(pdata) < 0)
+		if (create_command_buffers(p_win) < 0)
 			return res;
 		res--;
-		if (create_sync_objects(pdata) < 0)
+		if (create_sync_objects(p_win) < 0)
 			return res;
 
 		//Playground for stuff
 		VkResult result = VK_SUCCESS;
 
+		p_win->uniform_buffer = malloc(p_win->max_frames_in_flight * sizeof(VkBuffer));
+		res--;
+		if (!p_win->uniform_buffer)
+			return res;
+
 		VkPhysicalDeviceMemoryProperties mem_props;
 
-		vkGetPhysicalDeviceMemoryProperties(pdata->phy_device, &mem_props);
+		vkGetPhysicalDeviceMemoryProperties(p_win->phy_device, &mem_props);
 
 		VkBufferCreateInfo info = {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -1397,24 +1463,41 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 			.sharingMode = VK_SHARING_MODE_EXCLUSIVE
 		};
 
-		uint32_t reqs = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-		result = vkCreateBuffer(pdata->device, &info, NULL, &pdata->vert_buff);
+		result = vkCreateBuffer(p_win->device, &info, NULL, &p_win->vert_buff);
 
 		res--;
 		if (result != VK_SUCCESS)
 			return res;
 
-		VkMemoryRequirements buff_mem_req;
+		VkMemoryRequirements buff_mem_req1;
 
-		vkGetBufferMemoryRequirements(pdata->device, pdata->vert_buff, &buff_mem_req);
+		vkGetBufferMemoryRequirements(p_win->device, p_win->vert_buff, &buff_mem_req1);
+		
+		info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+		uint32_t reqs = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+		for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+
+			result = vkCreateBuffer(p_win->device, &info, NULL, &p_win->uniform_buffer[i]);
+
+			res--;
+			if (result != VK_SUCCESS)
+				return res;
+		}
+
+		VkMemoryRequirements buff_mem_req2;
+
+		vkGetBufferMemoryRequirements(p_win->device, p_win->uniform_buffer[0], &buff_mem_req2);
 
 
 		int32_t mem_inx = -1;
 		for (int i = 0; i < mem_props.memoryTypeCount; ++i) {
-			if (((1 << i) & buff_mem_req.memoryTypeBits) && (reqs == (reqs & mem_props.memoryTypes[i].propertyFlags))) {
+			if (((1 << i) & buff_mem_req1.memoryTypeBits) &&
+				((1 << i) & buff_mem_req2.memoryTypeBits) && 
+				(reqs == (reqs & mem_props.memoryTypes[i].propertyFlags))) {
 				mem_inx = i;
 				break;
 			}
@@ -1422,69 +1505,176 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 		VkMemoryAllocateInfo alloc_info = {
 			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			.allocationSize = 4096,
+			.allocationSize = 1024 + 1024 * p_win->max_frames_in_flight,
 			.memoryTypeIndex = mem_inx,
 		};
 
-		result = vkAllocateMemory(pdata->device, &alloc_info, NULL, &pdata->vert_memory);
+		result = vkAllocateMemory(p_win->device, &alloc_info, NULL, &p_win->vert_memory);
 
 		res--;
 		if (result != VK_SUCCESS)
 			return res;
 
+		for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+			vkBindBufferMemory(p_win->device, p_win->uniform_buffer[i], p_win->vert_memory, 1024 * (i + 1));
+		}
 
-		vkBindBufferMemory(pdata->device, pdata->vert_buff, pdata->vert_memory, 0);
+		vkBindBufferMemory(p_win->device, p_win->vert_buff, p_win->vert_memory, 0);
+
 
 		float* ptr;
-		vkMapMemory(pdata->device, pdata->vert_memory, 0, 1024, 0, &ptr);
+		vkMapMemory(p_win->device, p_win->vert_memory, 0, 1024, 0, &ptr);
 		float memdat[] = { -0.5, -0.5,0.5, 0.5,-0.5, 0.5 ,
 		0.5, 0.5,-0.5, -0.5,0.5, -0.5 };
 		memcpy(ptr, memdat, sizeof(memdat));
-		vkUnmapMemory(pdata->device, pdata->vert_memory);
+		vkUnmapMemory(p_win->device, p_win->vert_memory);
 
-		pdata->ex_data.deltas = 0;
+
+		VkDescriptorPoolSize descriptor_pool_size = {
+			.descriptorCount = p_win->max_frames_in_flight,
+			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		};
+
+		VkDescriptorPoolCreateInfo descriptor_pool_info = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.maxSets = p_win->max_frames_in_flight,
+			.poolSizeCount = 1,
+			.pPoolSizes = &descriptor_pool_size,
+		};
+
+		result = vkCreateDescriptorPool(p_win->device, &descriptor_pool_info, NULL, &p_win->descriptor_pool);
+
+		res--;
+		if (result != VK_SUCCESS) {
+			return res;
+		}
+
+		p_win->descriptor_sets = malloc(p_win->max_frames_in_flight * sizeof(VkDescriptorSet));
+
+		res--;
+		if (!p_win->descriptor_sets)
+			return res;
+
+		for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+			VkDescriptorSetAllocateInfo descriptor_sets_alloc = {
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+				.descriptorSetCount = 1,
+				.pSetLayouts = &p_win->descriptor_layout,
+				.descriptorPool = p_win->descriptor_pool,
+			};
+
+			result = vkAllocateDescriptorSets(p_win->device,
+				&descriptor_sets_alloc,
+				p_win->descriptor_sets + i);
+
+			res--;
+			if (result != VK_SUCCESS)
+				return res;
+						
+		}
+
+		VkWriteDescriptorSet* descriptor_write_structs = malloc(
+			p_win->max_frames_in_flight * (
+				sizeof(VkWriteDescriptorSet) +
+				sizeof(VkDescriptorBufferInfo))
+		);
+
+		res--;
+		if (!descriptor_write_structs)
+			return res;
+
+		VkDescriptorBufferInfo* descriptor_buff_infos = (VkDescriptorBufferInfo*)
+			(descriptor_write_structs +
+			p_win->max_frames_in_flight * sizeof(VkWriteDescriptorSet));
+
+		for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+			descriptor_buff_infos[i] = (VkDescriptorBufferInfo){
+				.buffer = p_win->uniform_buffer[i],
+				.offset = 0,
+				.range = sizeof(float)
+			};
+
+			descriptor_write_structs[i] = (VkWriteDescriptorSet){
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.descriptorCount = 1,
+				.dstArrayElement = 0,
+				.dstBinding = 0,
+				.dstSet = p_win->descriptor_sets[i],
+				.pBufferInfo = descriptor_buff_infos + i,
+
+			};
+
+			
+		}
+
+		vkUpdateDescriptorSets(p_win->device,
+			p_win->max_frames_in_flight,
+			descriptor_write_structs,
+			0, NULL);
+
+		free(descriptor_write_structs);
+
+		p_win->ex_data.deltas = 0;
 		
-		pdata->ex_data.timer_id = SetTimer(h_wnd, 111, 10, NULL);
+		p_win->ex_data.timer_id = SetTimer(h_wnd, 111, 10, NULL);
+
+
+		
+
 	}
 	else {
-		pdata = (WindowData*)GetWindowLongPtr(h_wnd, GWLP_USERDATA);
+		p_win = (WindowData*)GetWindowLongPtr(h_wnd, GWLP_USERDATA);
 	}
 
-	if (pdata) {
+	if (p_win) {
 
 		if (msg == WM_DESTROY) {
-			KillTimer(h_wnd, pdata->ex_data.timer_id);
+			KillTimer(h_wnd, p_win->ex_data.timer_id);
 			
-			vkDeviceWaitIdle(pdata->device);
-			vkDestroyBuffer(pdata->device, pdata->vert_buff, NULL);
-			vkFreeMemory(pdata->device, pdata->vert_memory, NULL);
+			vkDeviceWaitIdle(p_win->device);
 
-			clear_sync_objects(pdata);
-			clear_command_buffers(pdata);
-			clear_command_pool(pdata);
-			pdata->old_swapchain.img_count = pdata->curr_swapchain.img_count;
-			if (pdata->old_swapchain.framebuffers)
-				clear_framebuffers(pdata, &pdata->old_swapchain);
-			clear_framebuffers(pdata,&pdata->curr_swapchain);
-			clear_pipeline(pdata);
-			clear_render_pass(pdata);
-			if (pdata->old_swapchain.img_views)
-				clear_image_views(pdata, &pdata->old_swapchain);
-			clear_image_views(pdata,&pdata->curr_swapchain);
-			if (pdata->old_swapchain.swapchain)
-				clear_swapchain(pdata, &pdata->old_swapchain);
-			clear_swapchain(pdata,&pdata->curr_swapchain);
-			clear_device(pdata);
-			vkDestroySurfaceKHR(g_vk_instance, pdata->surface, NULL);
+
+			vkDestroyDescriptorPool(p_win->device, p_win->descriptor_pool, NULL);
+			clear_descriptor_layout(p_win);
+
+			vkDestroyBuffer(p_win->device, p_win->vert_buff, NULL);
+			vkFreeMemory(p_win->device, p_win->vert_memory, NULL);
+
+			for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+
+				vkDestroyBuffer(p_win->device, p_win->uniform_buffer[i], NULL);
+			}
+			free(p_win->descriptor_sets);
+			free(p_win->uniform_buffer);
+
+
+			clear_sync_objects(p_win);
+			clear_command_buffers(p_win);
+			clear_command_pool(p_win);
+			p_win->old_swapchain.img_count = p_win->curr_swapchain.img_count;
+			if (p_win->old_swapchain.framebuffers)
+				clear_framebuffers(p_win, &p_win->old_swapchain);
+			clear_framebuffers(p_win,&p_win->curr_swapchain);
+			clear_pipeline(p_win);
+			clear_render_pass(p_win);
+			if (p_win->old_swapchain.img_views)
+				clear_image_views(p_win, &p_win->old_swapchain);
+			clear_image_views(p_win,&p_win->curr_swapchain);
+			if (p_win->old_swapchain.swapchain)
+				clear_swapchain(p_win, &p_win->old_swapchain);
+			clear_swapchain(p_win,&p_win->curr_swapchain);
+			clear_device(p_win);
+			vkDestroySurfaceKHR(g_vk_instance, p_win->surface, NULL);
 			PostQuitMessage(0);
 			return 0;
 		}
 		if (msg == WM_PAINT) {
-			draw_frame(pdata);
-			pdata->ex_data.deltas = (pdata->ex_data.deltas + 257) % (2 * 256) - 256;
+			draw_frame(p_win);
+			p_win->ex_data.deltas = (p_win->ex_data.deltas + 257) % (2 * 256) - 256;
 		}
 		if (msg == WM_TIMER) {
-			if (wparam == pdata->ex_data.timer_id) {
+			if (wparam == p_win->ex_data.timer_id) {
 				InvalidateRect(h_wnd, NULL, TRUE);
 			}
 		}
@@ -1492,9 +1682,9 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 			RECT client_area;
 			GetClientRect(h_wnd, &client_area);
-			pdata->width = client_area.right;
-			pdata->height = client_area.bottom;
-			//recreate_swapchain(pdata);
+			p_win->width = client_area.right;
+			p_win->height = client_area.bottom;
+			//recreate_swapchain(p_win);
 		}
 		if (msg == WM_SETCURSOR) {
 			HCURSOR cursor = LoadCursor(NULL, IDC_UPARROW);
@@ -1523,7 +1713,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 
 	WindowData wnd_data = { 0 };
-	if (!CreateWindowEx(0, wndclass_name, L"Window", WS_OVERLAPPEDWINDOW , 10, 10, 600, 600, NULL, NULL, h_instance, &wnd_data))
+	if (!CreateWindowEx(0, wndclass_name, L"Window", WS_OVERLAPPEDWINDOW , 20, 10, 600, 600, NULL, NULL, h_instance, &wnd_data))
 		return -1;
 
 	ShowWindow(wnd_data.win_handle, SW_SHOW);

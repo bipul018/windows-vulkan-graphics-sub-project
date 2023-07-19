@@ -98,7 +98,7 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>D:\prgming\stb;D:\prgming\VulkanSDK\1.3.236.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <LanguageStandard_C>Default</LanguageStandard_C>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -132,7 +132,7 @@ cd $(ProjectDir)</Command>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>D:\prgming\stb;D:\prgming\VulkanSDK\1.3.236.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <LanguageStandard_C>Default</LanguageStandard_C>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -166,7 +166,7 @@ cd $(ProjectDir)</Command>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>D:\prgming\stb;D:\prgming\VulkanSDK\1.3.236.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <LanguageStandard_C>Default</LanguageStandard_C>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -200,7 +200,7 @@ cd $(ProjectDir)</Command>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>D:\prgming\stb;D:\prgming\VulkanSDK\1.3.236.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <LanguageStandard_C>Default</LanguageStandard_C>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -236,6 +236,8 @@ cd $(ProjectDir)</Command>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="common-stuff.h" />
+    <ClInclude Include="device-mem-stuff.h" />
+    <ClInclude Include="old-main.h" />
     <ClInclude Include="render-stuff.h" />
     <ClInclude Include="window-stuff.h" />
   </ItemGroup>

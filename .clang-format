@@ -1,0 +1,13 @@
+# Format Style Options - Created with Clang Power Tools
+---
+BasedOnStyle: WebKit
+AlignAfterOpenBracket: Align
+AllowShortEnumsOnASingleLine: false
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Attach
+ColumnLimit: 70
+ContinuationIndentWidth: 2
+DerivePointerAlignment: true
+MaxEmptyLinesToKeep: 2
+SpaceBeforeCpp11BracedList: false
+...

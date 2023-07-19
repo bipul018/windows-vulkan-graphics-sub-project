@@ -36,5 +36,11 @@
     <ClInclude Include="render-stuff.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="device-mem-stuff.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="old-main.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

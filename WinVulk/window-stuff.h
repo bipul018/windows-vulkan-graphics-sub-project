@@ -1,290 +1,413 @@
 #pragma once
+#include "common-stuff.h"
 
+struct SwapchainEntities {
+    VkSwapchainKHR swapchain;
 
-
-//Data like window handle, size, surface, images, framebuffers, swapchains
+    // All following have this img_count elements if successfully created
+    uint32_t img_count;
+    VkImage *images;
+    VkImageView *img_views;
+    VkFramebuffer *framebuffers;
+};
+// Data like window handle, size, surface, images, framebuffers, swapchains
 struct WindowData {
-	struct ExcessData ex_data;
-	HANDLE win_handle;
-	int width;
-	int height;
+    HANDLE win_handle;
+    int width;
+    int height;
 
+    VkSurfaceKHR surface;
 
-	VkSurfaceKHR surface;
+    uint32_t min_img_count;
+    VkSurfaceFormatKHR img_format;
+    VkSurfaceTransformFlagBitsKHR img_surface_transform_flag;
+    VkPresentModeKHR img_present_mode;
+    VkExtent2D img_swap_extent;
 
+    // A struct of everything that depends on swapchain
+    struct SwapchainEntities curr_swapchain;
 
-	uint32_t min_img_count;
-	VkSurfaceFormatKHR img_format;
-	VkSurfaceTransformFlagBitsKHR img_surface_transform_flag;
-	VkPresentModeKHR img_present_mode;
-	VkExtent2D img_swap_extent;
-
-	//A struct of everything that depends on swapchain
-	struct SwapchainEntities {
-		VkSwapchainKHR swapchain;
-
-		//All following have this img_count elements if successfully created
-		uint32_t img_count;
-		VkImage* images;
-		VkImageView* img_views;
-		VkFramebuffer* framebuffers;
-	} curr_swapchain;
-
-	struct SwapchainEntities old_swapchain;
-
+    struct SwapchainEntities old_swapchain;
 };
 
 typedef struct WindowData WindowData;
 
+enum CreateSwapchainCodes {
+    CREATE_SWAPCHAIN_FAILED = -0x7fff,
+    CREATE_SWAPCHAIN_ZERO_SURFACE_SIZE,
+    CREATE_SWAPCHAIN_IMAGE_LOAD_FAIL,
+    CREATE_SWAPCHAIN_IMAGE_ALLOC_FAIL,
+    CREATE_SWAPCHAIN_IMAGE_VIEW_ALLOC_FAIL,
+    CREATE_SWAPCHAIN_IMAGE_VIEW_CREATE_FAIL,
+    CREATE_SWAPCHAIN_OK = 0,
+};
 
+struct SwapchainCreationInfo {
+    VkPhysicalDevice phy_device;
+    VkSurfaceKHR surface;
 
+    int graphics_family_inx;
+    int present_family_inx;
 
+    uint32_t min_image_count;
+    VkSurfaceFormatKHR surface_format;
+    VkSurfaceTransformFlagBitsKHR img_pre_transform;
+    VkPresentModeKHR present_mode;
+};
 
-int create_swapchain(GlobalData* p_win) {
-	int res = 0;
-	VkResult result = VK_SUCCESS;
+typedef struct {
+    VkDevice device;
+    int win_width;
+    int win_height;
 
-	VkSurfaceCapabilitiesKHR surf_capa;
+    struct SwapchainCreationInfo create_info;
 
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-		p_win->phy_device,
-		p_win->surface,
-		&surf_capa);
+    VkSwapchainKHR old_swapchain;
 
-	//Choose swap extent
-	// ++++
-	//  TODO:: make dpi aware, ..., maybe not needed
-	// ++++
-	//Now just use set width and height, also currently not checked anything from capabilities
-	//Also be aware of max and min extent set to numeric max of uint32_t
-	if (surf_capa.currentExtent.width != -1 && surf_capa.currentExtent.height != -1) {
+    struct SwapchainEntities *curr_swapchain_data;
+    VkExtent2D *p_img_swap_extent;
 
-		p_win->img_swap_extent = surf_capa.currentExtent;
+} CreateSwapchainParam;
 
-	}
-	else {
-		p_win->img_swap_extent.width = p_win->width;
-		p_win->img_swap_extent.height = p_win->height;
+int create_swapchain(StackAllocator *stk_allocr, size_t stk_offset,
+                     VkAllocationCallbacks *alloc_callbacks, CreateSwapchainParam param) {
 
-	}
+    VkResult result = VK_SUCCESS;
 
-	res--;
-	if (!p_win->img_swap_extent.width || !p_win->img_swap_extent.height) {
-		return res;
-	}
+    VkSurfaceCapabilitiesKHR surf_capa;
 
-	//An array of queue family indices used
-	uint32_t indices_array[] = { p_win->graphics_inx,p_win->present_inx };
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(param.create_info.phy_device,
+                                              param.create_info.surface, &surf_capa);
 
+    // Choose swap extent
+    //  ++++
+    //   TODO:: make dpi aware, ..., maybe not needed
+    //  ++++
+    // Now just use set width and height, also currently not checked anything from
+    // capabilities Also be aware of max and min extent set to numeric max of
+    // uint32_t
+    if (surf_capa.currentExtent.width != -1 && surf_capa.currentExtent.height != -1) {
 
-	VkSwapchainCreateInfoKHR create_info = {
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.surface = p_win->surface,
-		.minImageCount = p_win->min_img_count,
-		.imageFormat = p_win->img_format.format,
-		.imageColorSpace = p_win->img_format.colorSpace,
-		.imageExtent = p_win->img_swap_extent,
-		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.preTransform = p_win->img_surface_transform_flag,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = p_win->img_present_mode,
-		.clipped = VK_TRUE,			//This should be false only if pixels have to re read
-		.oldSwapchain = p_win->old_swapchain.swapchain,
-		.imageSharingMode = VK_SHARING_MODE_CONCURRENT,
-		//Here , for exclusive sharing mode it is  optional; else for concurrent, there has to be at
-		//least two different queue families, and all should be specified to share the images amoong
-		.queueFamilyIndexCount = COUNT_OF(indices_array),
-		.pQueueFamilyIndices = indices_array
-	};
+        *param.p_img_swap_extent = surf_capa.currentExtent;
 
-	if (indices_array[0] == indices_array[1]) {
-		create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	}
+    } else {
+        param.p_img_swap_extent->width = param.win_width;
+        param.p_img_swap_extent->height = param.win_height;
+    }
 
+    if (!param.p_img_swap_extent->width || !param.p_img_swap_extent->height) {
+        return CREATE_SWAPCHAIN_ZERO_SURFACE_SIZE;
+    }
 
+    // An array of queue family indices used
+    uint32_t indices_array[] = { param.create_info.graphics_family_inx,
+                                 param.create_info.present_family_inx };
 
-	result = vkCreateSwapchainKHR(p_win->device, &create_info,
-		p_win->p_host_alloc_calls,
-		&(p_win->curr_swapchain.swapchain));
+    VkSwapchainCreateInfoKHR create_info = {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = param.create_info.surface,
+        .minImageCount = param.create_info.min_image_count,
+        .imageFormat = param.create_info.surface_format.format,
+        .imageColorSpace = param.create_info.surface_format.colorSpace,
+        .imageExtent = *param.p_img_swap_extent,
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .preTransform = param.create_info.img_pre_transform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = param.create_info.present_mode,
+        .clipped = VK_TRUE, // This should be false only if pixels have to re read
+        .oldSwapchain = param.old_swapchain,
+        .imageSharingMode = VK_SHARING_MODE_CONCURRENT,
+        // Here , for exclusive sharing mode it is  optional; else for concurrent,
+        // there has to be at least two different queue families, and all should
+        // be specified to share the images amoong
+        .queueFamilyIndexCount = COUNT_OF(indices_array),
+        .pQueueFamilyIndices = indices_array
+    };
 
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
+    if (indices_array[0] == indices_array[1]) {
+        create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
 
-	result = vkGetSwapchainImagesKHR(p_win->device, p_win->curr_swapchain.swapchain,
-		&(p_win->curr_swapchain.img_count), NULL);
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
-	p_win->curr_swapchain.images = malloc(p_win->curr_swapchain.img_count * sizeof(VkImage));
-	vkGetSwapchainImagesKHR(p_win->device, p_win->curr_swapchain.swapchain,
-		&(p_win->curr_swapchain.img_count), p_win->curr_swapchain.images);
+    result = vkCreateSwapchainKHR(param.device, &create_info, alloc_callbacks,
+                                  &(param.curr_swapchain_data->swapchain));
 
-	return 0;
+    if (result != VK_SUCCESS)
+        return CREATE_SWAPCHAIN_FAILED;
+
+    result = vkGetSwapchainImagesKHR(param.device, param.curr_swapchain_data->swapchain,
+                                     &(param.curr_swapchain_data->img_count), NULL);
+
+    if ((result != VK_SUCCESS) || (param.curr_swapchain_data->img_count == 0))
+        return CREATE_SWAPCHAIN_IMAGE_LOAD_FAIL;
+
+    param.curr_swapchain_data->images =
+      malloc(param.curr_swapchain_data->img_count * sizeof(VkImage));
+    if (!param.curr_swapchain_data->images)
+        return CREATE_SWAPCHAIN_IMAGE_ALLOC_FAIL;
+    vkGetSwapchainImagesKHR(param.device, param.curr_swapchain_data->swapchain,
+                            &(param.curr_swapchain_data->img_count),
+                            param.curr_swapchain_data->images);
+
+    param.curr_swapchain_data->img_views =
+      malloc(param.curr_swapchain_data->img_count * sizeof(VkImageView));
+    if (!param.curr_swapchain_data->img_views)
+        return CREATE_SWAPCHAIN_IMAGE_VIEW_ALLOC_FAIL;
+    memset(param.curr_swapchain_data->img_views, 0,
+           param.curr_swapchain_data->img_count * sizeof(VkImageView));
+    for (size_t i = 0; i < param.curr_swapchain_data->img_count; ++i) {
+        VkImageViewCreateInfo create_info = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = param.curr_swapchain_data->images[i],
+
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = param.create_info.surface_format.format,
+
+            .components = (VkComponentMapping){ .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                .a = VK_COMPONENT_SWIZZLE_IDENTITY },
+
+            .subresourceRange =
+              (VkImageSubresourceRange){ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                         .baseMipLevel = 0,
+                                         .levelCount = 1,
+                                         .baseArrayLayer = 0,
+                                         .layerCount = 1 }
+
+        };
+
+        result = vkCreateImageView(param.device, &create_info, alloc_callbacks,
+                                   param.curr_swapchain_data->img_views + i);
+        if (result != VK_SUCCESS)
+            break;
+    }
+
+    if (result != VK_SUCCESS)
+        return CREATE_SWAPCHAIN_IMAGE_VIEW_CREATE_FAIL;
+
+    return CREATE_SWAPCHAIN_OK;
 }
 
-int create_image_views(GlobalData* p_win) {
-	int res = 0;
-	VkResult result = VK_SUCCESS;
+typedef struct {
+    VkDevice device;
+    struct SwapchainEntities *p_swapchain_data;
+} ClearSwapchainParam;
+void clear_swapchain(VkAllocationCallbacks *alloc_callbacks, ClearSwapchainParam param,
+                     int err_codes) {
 
-	p_win->curr_swapchain.img_views = malloc(p_win->curr_swapchain.img_count * sizeof(VkImageView));
-	for (size_t i = 0; i < p_win->curr_swapchain.img_count; ++i) {
-		VkImageViewCreateInfo create_info = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.image = p_win->curr_swapchain.images[i],
+    switch (err_codes) {
 
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-			.format = p_win->img_format.format,
+    case CREATE_SWAPCHAIN_OK:
+    case CREATE_SWAPCHAIN_IMAGE_VIEW_CREATE_FAIL:
+        for (int i = 0; i < param.p_swapchain_data->img_count; ++i) {
+            if (param.p_swapchain_data->img_views[i])
+                vkDestroyImageView(param.device, param.p_swapchain_data->img_views[i],
+                                   alloc_callbacks);
+        }
 
-			.components = (VkComponentMapping){
-				.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.a = VK_COMPONENT_SWIZZLE_IDENTITY
-			},
+        free(param.p_swapchain_data->img_views);
+    case CREATE_SWAPCHAIN_IMAGE_VIEW_ALLOC_FAIL:
+        param.p_swapchain_data->img_views = NULL;
 
-			.subresourceRange = (VkImageSubresourceRange){
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1
-			}
+        free(param.p_swapchain_data->images);
 
-		};
+    case CREATE_SWAPCHAIN_IMAGE_ALLOC_FAIL:
+        param.p_swapchain_data->images = NULL;
+        param.p_swapchain_data->img_count = 0;
 
-		result = vkCreateImageView(p_win->device, &create_info,
-			p_win->p_host_alloc_calls,
-			p_win->curr_swapchain.img_views + i);
-		if (result != VK_SUCCESS)
-			break;
+    case CREATE_SWAPCHAIN_IMAGE_LOAD_FAIL:
+        vkDestroySwapchainKHR(param.device, param.p_swapchain_data->swapchain,
+                              alloc_callbacks);
 
-	}
+    case CREATE_SWAPCHAIN_FAILED:
+        param.p_swapchain_data->swapchain = VK_NULL_HANDLE;
+    case CREATE_SWAPCHAIN_ZERO_SURFACE_SIZE:
 
-	res--;
-	if (result != VK_SUCCESS) {
-		free(p_win->curr_swapchain.img_views);
-		p_win->curr_swapchain.img_views = NULL;
-		p_win->curr_swapchain.img_count = 0;
-		return res;
-	}
-
-	return 0;
+        break;
+    }
 }
 
+enum CreateFramebuffersCodes {
+    CREATE_FRAMEBUFFERS_FAILED = -0x7fff,
+    CREATE_FRAMEBUFFERS_INT_ALLOC_FAILED,
+    CREATE_FRAMEBUFFERS_OK = 0,
+};
 
+typedef struct {
+    VkDevice device;
 
+    VkExtent2D framebuffer_extent;
+    VkRenderPass compatible_render_pass;
+    uint32_t framebuffer_count;
+    VkImageView *img_views;
 
-int create_framebuffers(GlobalData* p_win) {
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+    VkFramebuffer **p_framebuffers;
 
-	p_win->curr_swapchain.framebuffers = malloc(p_win->curr_swapchain.img_count * sizeof(VkFramebuffer));
+} CreateFramebuffersParam;
 
-	res--;
-	if (!p_win->curr_swapchain.framebuffers)
-		goto alloc_framebuffers;
+int create_framebuffers(StackAllocator *stk_allocr, size_t stk_offset,
+                        VkAllocationCallbacks *alloc_callbacks,
+                        CreateFramebuffersParam param) {
 
-	for (int i = 0; i < p_win->curr_swapchain.img_count; ++i) {
-		VkImageView img_attachments[] = {
-			p_win->curr_swapchain.img_views[i]
-		};
-		VkFramebufferCreateInfo create_info = {
-			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-			.renderPass = p_win->render_pass,
-			.attachmentCount = COUNT_OF(img_attachments),
-			.pAttachments = img_attachments,
-			.width = p_win->img_swap_extent.width,
-			.height = p_win->img_swap_extent.height,
-			.layers = 1
-		};
-		result = vkCreateFramebuffer(p_win->device, &create_info,
-			p_win->p_host_alloc_calls,
-			&(p_win->curr_swapchain.framebuffers[i]));
-		res--;
-		if (result != VK_SUCCESS)
-			goto create_framebuffers;
-	}
+    VkResult result = VK_SUCCESS;
 
-	res = 0;
-create_framebuffers:
-alloc_framebuffers:
+    param.p_framebuffers[0] = malloc(param.framebuffer_count * sizeof(VkFramebuffer));
 
-	return res;
+    if (!param.p_framebuffers[0])
+        return CREATE_FRAMEBUFFERS_INT_ALLOC_FAILED;
+
+    memset(param.p_framebuffers[0], 0, param.framebuffer_count * sizeof(VkFramebuffer));
+    for (int i = 0; i < param.framebuffer_count; ++i) {
+        VkImageView img_attachments[] = { param.img_views[i] };
+        VkFramebufferCreateInfo create_info = {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = param.compatible_render_pass,
+            .attachmentCount = COUNT_OF(img_attachments),
+            .pAttachments = img_attachments,
+            .width = param.framebuffer_extent.width,
+            .height = param.framebuffer_extent.height,
+            .layers = 1,
+        };
+        result = vkCreateFramebuffer(param.device, &create_info, alloc_callbacks,
+                                     param.p_framebuffers[0] + i);
+
+        if (result != VK_SUCCESS)
+            break;
+    }
+
+    if (result != VK_SUCCESS)
+        return CREATE_FRAMEBUFFERS_FAILED;
+
+    return CREATE_FRAMEBUFFERS_OK;
 }
 
+typedef struct {
+    VkDevice device;
+    uint32_t framebuffer_count;
 
+    VkFramebuffer **p_framebuffers;
+} ClearFramebuffersParam;
+void clear_framebuffers(VkAllocationCallbacks *alloc_callbacks,
+                        ClearFramebuffersParam param, int err_codes) {
 
-int clear_framebuffers(GlobalData* p_win, struct SwapchainEntities* entities) {
-	for (int i = 0; i < entities->img_count; ++i) {
-		vkDestroyFramebuffer(p_win->device, entities->framebuffers[i],
-			p_win->p_host_alloc_calls);
-	}
-	free(entities->framebuffers);
-	entities->framebuffers = NULL;
-	return 0;
+    switch (err_codes) {
+    case CREATE_FRAMEBUFFERS_OK:
+    case CREATE_FRAMEBUFFERS_FAILED:
+        for (int i = 0; i < param.framebuffer_count; ++i) {
+            if (param.p_framebuffers[0][i])
+                vkDestroyFramebuffer(param.device, param.p_framebuffers[0][i],
+                                     alloc_callbacks);
+            else
+                break;
+        }
+
+        free(param.p_framebuffers[0]);
+    case CREATE_FRAMEBUFFERS_INT_ALLOC_FAILED:
+        param.p_framebuffers[0] = NULL;
+    }
 }
 
+enum RecreateSwapchainCodes {
+    RECREATE_SWAPCHAIN_CREATE_SWAPCHAIN_ERR = -0x7fff,
+    RECREATE_SWAPCHAIN_CREATE_FRAMEBUFFER_ERR,
+    RECREATE_SWAPCHAIN_OK = 0,
+};
 
+typedef struct {
+    VkDevice device;
+    int new_win_width;
+    int new_win_height;
+    VkRenderPass framebuffer_render_pass;
+    struct SwapchainCreationInfo create_info;
 
+    VkExtent2D *p_img_swap_extent;
+    struct SwapchainEntities *p_old_swapchain_data;
+    struct SwapchainEntities *p_new_swapchain_data;
+} RecreateSwapchainParam;
 
-int clear_image_views(GlobalData* p_win, struct SwapchainEntities* entities) {
+int recreate_swapchain(StackAllocator *stk_allocr, size_t stk_offset,
+                       VkAllocationCallbacks *alloc_callbacks,
+                       RecreateSwapchainParam param) {
 
-	for (int i = 0; i < entities->img_count; ++i) {
-		vkDestroyImageView(p_win->device, entities->img_views[i],
-			p_win->p_host_alloc_calls);
-	}
-	free(entities->img_views);
-	entities->img_views = NULL;
-	return 0;
-}
+    if (param.p_old_swapchain_data->swapchain) {
+        if (param.p_old_swapchain_data->img_count > 0)
+            vkDeviceWaitIdle(param.device);
+        param.p_old_swapchain_data->img_count = param.p_new_swapchain_data->img_count;
 
-int clear_swapchain(GlobalData* p_win, struct SwapchainEntities* entities) {
-	free(entities->images);
-	entities->images = NULL;
-	vkDestroySwapchainKHR(p_win->device, entities->swapchain,
-		p_win->p_host_alloc_calls);
-	entities->images = NULL;
-	entities->swapchain = NULL;
-	entities->img_count = 0;
-	return 0;
-}
+        ClearFramebuffersParam clear_fb = { .device = param.device,
+                                            .framebuffer_count =
+                                              param.p_old_swapchain_data->img_count,
+                                            .p_framebuffers =
+                                              &param.p_old_swapchain_data->framebuffers };
+        clear_framebuffers(alloc_callbacks, clear_fb, 0);
 
+        ClearSwapchainParam clear_sc = {
+            .device = param.device,
+            .p_swapchain_data = param.p_old_swapchain_data,
+        };
+        clear_swapchain(alloc_callbacks, clear_sc, 0);
+    }
 
+    param.p_old_swapchain_data[0] = param.p_new_swapchain_data[0];
 
-int recreate_swapchain(GlobalData* p_win) {
-	int res = 0;
+    int err_code = 0;
 
+    CreateSwapchainParam create_sc = {
+        .device = param.device,
+        .win_height = param.new_win_height,
+        .win_width = param.new_win_width,
+        .create_info = param.create_info,
+        .p_img_swap_extent = param.p_img_swap_extent,
+        .old_swapchain = param.p_old_swapchain_data->swapchain,
+        .curr_swapchain_data = param.p_new_swapchain_data,
+    };
 
-	if (p_win->old_swapchain.swapchain) {
-		if (p_win->old_swapchain.img_count > 0)
-			vkDeviceWaitIdle(p_win->device);
-		p_win->old_swapchain.img_count = p_win->curr_swapchain.img_count;
-		clear_framebuffers(p_win, &p_win->old_swapchain);
-		clear_image_views(p_win, &p_win->old_swapchain);
-		clear_swapchain(p_win, &p_win->old_swapchain);
-	}
+    err_code = create_swapchain(stk_allocr, stk_offset, alloc_callbacks, create_sc);
+    if (err_code < 0) {
+        // Return if any error, like zero framebuffer size, with swapchain unchanged
+        // Also clear the swapchain, and reassign old swapchain to current again
+        ClearSwapchainParam clear_sc = {
+            .device = param.device,
+            .p_swapchain_data = param.p_new_swapchain_data,
+        };
+        clear_swapchain(alloc_callbacks, clear_sc, err_code);
+        *(param.p_new_swapchain_data) = *(param.p_old_swapchain_data);
+        *(param.p_old_swapchain_data) = (struct SwapchainEntities){ 0 };
+        return RECREATE_SWAPCHAIN_CREATE_SWAPCHAIN_ERR;
+    }
 
-	p_win->old_swapchain = p_win->curr_swapchain;
+    CreateFramebuffersParam create_fb = {
+        .device = param.device,
+        .compatible_render_pass = param.framebuffer_render_pass,
+        .framebuffer_count = param.p_new_swapchain_data->img_count,
+        .framebuffer_extent = param.p_img_swap_extent[0],
+        .img_views = param.p_new_swapchain_data->img_views,
+        .p_framebuffers = &(param.p_new_swapchain_data->framebuffers)
+    };
+    err_code = create_framebuffers(stk_allocr, stk_offset, alloc_callbacks, create_fb);
 
-	res--;
-	if (create_swapchain(p_win) < 0) {
-		//Return if any error, like zero framebuffer size, with swapchain unchanged
-		p_win->curr_swapchain = p_win->old_swapchain;
-		p_win->old_swapchain = (struct SwapchainEntities){ 0 };
-		return res;
-	}
+    if (err_code < 0) {
+        // Return if any error, like zero framebuffer size, with swapchain unchanged
+        // Also clear the swapchain, and reassign old swapchain to current again
 
-	res--;
-	if (create_image_views(p_win) < 0)
-		return res;
+        ClearFramebuffersParam clear_fb = {
+            .device = param.device,
+            .framebuffer_count = param.p_new_swapchain_data->img_count,
+            .p_framebuffers = &(param.p_new_swapchain_data->framebuffers),
+        };
 
-	res--;
-	if (create_framebuffers(p_win) < 0)
-		return res;
+        clear_framebuffers(alloc_callbacks, clear_fb, err_code);
 
+        ClearSwapchainParam clear_sc = {
+            .device = param.device,
+            .p_swapchain_data = param.p_new_swapchain_data,
+        };
+        clear_swapchain(alloc_callbacks, clear_sc, 0);
+        *(param.p_new_swapchain_data) = *(param.p_old_swapchain_data);
+        *(param.p_old_swapchain_data) = (struct SwapchainEntities){ 0 };
+        return RECREATE_SWAPCHAIN_CREATE_FRAMEBUFFER_ERR;
+    }
 
-
-	return 0;
+    return RECREATE_SWAPCHAIN_OK;
 }

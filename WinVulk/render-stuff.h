@@ -1,561 +1,681 @@
 #pragma once
+#include "window-stuff.h"
 
-
-//Data like render passes, vertex buffers, descriptors, synchronization objects 
+// Data like render passes, vertex buffers, descriptors, synchronization objects
 struct RenderData {
 
-	VkRenderPass render_pass;
+    VkRenderPass render_pass;
 
-	UINT curr_frame_in_flight;
-	UINT max_frames_in_flight;
-	VkCommandBuffer* cmd_buffer;
-	VkFence* in_flight_fences;
-	VkSemaphore* image_available_semaphores;
-	VkSemaphore* render_finished_semaphores;
+    UINT curr_frame_in_flight;
+    UINT max_frames_in_flight;
+    VkCommandBuffer *cmd_buffer;
+    VkFence *in_flight_fences;
+    VkSemaphore *image_available_semaphores;
+    VkSemaphore *render_finished_semaphores;
 
+    VkBuffer vert_buff;
+    VkDescriptorPool descriptor_pool;
 
-	VkBuffer vert_buff;
-	VkDescriptorPool descriptor_pool;
-
-
-	//Temporary members
-	VkBuffer* uniform_buffer;
-	VkDescriptorSet* descriptor_sets;
+    // Temporary members
+    VkBuffer *uniform_buffer;
+    VkDescriptorSet *descriptor_sets;
 };
 typedef struct RenderData RenderData;
 
-
-//Pipeline data 
+// Pipeline data
 struct GraphicsPipeline {
 
-	VkPipelineLayout graphics_pipeline_layout;
-	VkPipeline graphics_pipeline;
-	VkDescriptorSetLayout descriptor_layout;
-
+    VkPipelineLayout graphics_pipeline_layout;
+    VkPipeline graphics_pipeline;
+    VkDescriptorSetLayout descriptor_layout;
 };
 typedef struct GraphicsPipeline GraphicsPipeline;
 
+enum CreateRenderPassCodes {
+    CREATE_RENDER_PASS_FAILED = -0x7fff,
 
-int create_render_pass(GlobalData* p_win) {
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+    CREATE_RENDER_PASS_OK = 0,
+};
 
-	VkAttachmentDescription attachments = {
-		.format = p_win->img_format.format,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,		//Determines what to do to attachment before render
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,	//Whether to store rendered things back or not
-		.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	};
+typedef struct {
+    VkDevice device;
+    VkFormat img_format;
 
-	VkAttachmentReference attachment_refs = {
-		.attachment = 0,
-		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	};
+    VkRenderPass *p_render_pass;
+} CreateRenderPassParam;
+int create_render_pass(StackAllocator *stk_allocr, size_t stk_offset,
+                       VkAllocationCallbacks *alloc_callbacks,
+                       CreateRenderPassParam param) {
 
-	//Determines the shader input / output refrenced in the subpass
-	VkSubpassDescription subpass = {
-		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-		.colorAttachmentCount = 1,
-		.pColorAttachments = &attachment_refs,
-	};
+    VkResult result = VK_SUCCESS;
 
-	VkSubpassDependency subpass_dependency = {
-		.srcSubpass = VK_SUBPASS_EXTERNAL,
-		.dstSubpass = 0,
-		.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		.srcAccessMask = 0,
-		.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-	};
+    VkAttachmentDescription attachments = {
+        .format = param.img_format,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, // Determines what to do to
+                                               // attachment before render
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE, // Whether to store rendered
+                                                 // things back or not
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+    };
 
-	VkRenderPassCreateInfo create_info = {
-		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-		.attachmentCount = 1,
-		.pAttachments = &attachments,
-		.subpassCount = 1,
-		.pSubpasses = &subpass,
-		.dependencyCount = 1,
-		.pDependencies = &subpass_dependency,
-	};
+    VkAttachmentReference attachment_refs = {
+        .attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
 
-	result = vkCreateRenderPass(p_win->device, &create_info,
-		p_win->p_host_alloc_calls,
-		&(p_win->render_pass));
+    // Determines the shader input / output refrenced in the subpass
+    VkSubpassDescription subpass = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &attachment_refs,
+    };
 
-	res--;
-	if (result != VK_SUCCESS)
-		goto create_render_pass;
+    VkSubpassDependency subpass_dependency = {
+        .srcSubpass = VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    };
 
-	res = 0;
+    VkRenderPassCreateInfo create_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &attachments,
+        .subpassCount = 1,
+        .pSubpasses = &subpass,
+        .dependencyCount = 1,
+        .pDependencies = &subpass_dependency,
+    };
 
-create_render_pass:
-	return res;
+    result = vkCreateRenderPass(param.device, &create_info, alloc_callbacks,
+                                param.p_render_pass);
+
+    if (result != VK_SUCCESS)
+        return CREATE_RENDER_PASS_FAILED;
+
+    return CREATE_RENDER_PASS_OK;
 }
 
+typedef struct {
+    VkDevice device;
 
-uint32_t* read_bytecode_file(const char* file_name, size_t* file_size) {
-	FILE* file = fopen(file_name, "rb");
-
-	if (!file) {
-		if (file_size)
-			*file_size = 0;
-		return NULL;
-	}
-	fseek(file, 0, SEEK_END);
-	size_t size = ftell(file);
-	fseek(file, 0, SEEK_SET);
-
-
-	uint32_t* data = malloc((size + (sizeof(size_t) - 1)) & ~(sizeof(size_t) - 1));
-
-	//Assume that p_win is aligned properly
-	if (!data) {
-		fclose(file);
-
-		if (file_size)
-			*file_size = 0;
-		return NULL;
-	}
-
-	fread(data, 1, size, file);
-
-	fclose(file);
-
-	if (file_size)
-		*file_size = size;
-	return data;
+    VkRenderPass *p_render_pass;
+} ClearRenderPassParam;
+void clear_render_pass(VkAllocationCallbacks *alloc_callbacks, ClearRenderPassParam param,
+                       int err_codes) {
+    switch (err_codes) {
+    case CREATE_RENDER_PASS_OK:
+        vkDestroyRenderPass(param.device, *param.p_render_pass, alloc_callbacks);
+    case CREATE_RENDER_PASS_FAILED:
+        *param.p_render_pass = VK_NULL_HANDLE;
+    }
 }
 
-int create_shader_module(VkDevice device, uint32_t* shader_bytecode,
-	size_t code_size, VkShaderModule* p_shader_module,
-	VkAllocationCallbacks* alloc_callbacks) {
+uint32_t *read_spirv_in_stk_allocr(StackAllocator *stk_allocr, size_t *p_stk_offset,
+                                   const char *file_name, size_t *p_file_size) {
+    if (!stk_allocr || !p_stk_offset)
+        return NULL;
 
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+    FILE *file = fopen(file_name, "rb");
 
-	res--;
-	if (!shader_bytecode)
-		return res;
+    if (p_file_size)
+        *p_file_size = 0;
+    if (!file) {
+        return NULL;
+    }
 
-	res--;
-	if (!p_shader_module)
-		return res;
+    fseek(file, 0, SEEK_END);
+    size_t file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
-	VkShaderModuleCreateInfo create_info = {
-		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-		.pCode = shader_bytecode,
-		.codeSize = code_size
-	};
+    uint32_t *buffer = stack_allocate(stk_allocr, p_stk_offset, align_up_(file_size, 4),
+                                      sizeof(uint32_t));
+    memset(buffer, 0, align_up_(file_size, 4));
+    if (!buffer)
+        return NULL;
 
-	result = vkCreateShaderModule(device, &create_info,
-		alloc_callbacks,
-		p_shader_module);
+    fread(buffer, 1, file_size, file);
+    file_size = align_up_(file_size, 4);
+    if (p_file_size)
+        *p_file_size = file_size;
 
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
+    fclose(file);
 
-	return 0;
+    return buffer;
 }
 
+enum CreateShaderModuleFromFileCodes {
+    CREATE_SHADER_MODULE_FROM_FILE_ERROR = -0x7fff,
+    CREATE_SHADER_MODULE_FROM_FILE_READ_FILE_ERROR,
+    CREATE_SHADER_MODULE_FROM_FILE_OK = 0,
+};
 
-int create_graphics_pipeline(GlobalData* p_win) {
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+typedef struct {
+    VkDevice device;
+    const char *shader_file_name;
 
-	size_t vert_shader_size = 0;
-	size_t frag_shader_size = 0;
+    VkShaderModule *p_shader_module;
+} CreateShaderModuleFromFileParam;
 
-	uint32_t* vert_shader_code = read_bytecode_file("shaders/out/demo.vert.spv", &vert_shader_size);
+int create_shader_module_from_file(StackAllocator *stk_allocr, size_t stk_offset,
+                                   VkAllocationCallbacks *alloc_callbacks,
+                                   CreateShaderModuleFromFileParam param) {
 
-	res--;
-	if (!vert_shader_code)
-		return res;
+    VkResult result = VK_SUCCESS;
 
-	uint32_t* frag_shader_code = read_bytecode_file("shaders/out/demo.frag.spv", &frag_shader_size);
+    size_t code_size = 0;
+    uint32_t *shader_code = read_spirv_in_stk_allocr(stk_allocr, &stk_offset,
+                                                     param.shader_file_name, &code_size);
+    if (!shader_code)
+        return CREATE_SHADER_MODULE_FROM_FILE_READ_FILE_ERROR;
 
-	res--;
-	if (!frag_shader_code) {
-		free(vert_shader_code);
-		return res;
-	}
+    VkShaderModuleCreateInfo create_info = {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .pCode = shader_code,
+        .codeSize = code_size,
+    };
 
-	VkShaderModule vert_shader, frag_shader;
+    result = vkCreateShaderModule(param.device, &create_info, alloc_callbacks,
+                                  param.p_shader_module);
 
-	res--;
-	if (create_shader_module(p_win->device, vert_shader_code, vert_shader_size,
-		&vert_shader,
-		p_win->p_host_alloc_calls) < 0) {
-		free(vert_shader_code);
-		free(frag_shader_code);
-		return res;
-	}
-	free(vert_shader_code);
+    if (result != VK_SUCCESS)
+        return CREATE_SHADER_MODULE_FROM_FILE_ERROR;
 
-	res--;
-	if (create_shader_module(p_win->device, frag_shader_code, frag_shader_size,
-		&frag_shader,
-		p_win->p_host_alloc_calls) < 0) {
-		vkDestroyShaderModule(p_win->device, vert_shader,
-			p_win->p_host_alloc_calls);
-		free(frag_shader_code);
-		return res;
-	}
-	free(frag_shader_code);
-
-	VkPipelineShaderStageCreateInfo vert_shader_stage = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-		.stage = VK_SHADER_STAGE_VERTEX_BIT,
-		.module = vert_shader,
-		.pName = "main"
-	};
-
-	VkPipelineShaderStageCreateInfo frag_shader_stage = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-		.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-		.module = frag_shader,
-		.pName = "main"
-	};
-
-	VkPipelineShaderStageCreateInfo shader_stages[] = {
-		vert_shader_stage,frag_shader_stage
-	};
-
-	VkVertexInputAttributeDescription vert_input_attr = {
-		.offset = 0,
-		.binding = 0,
-		.location = 0,
-		.format = VK_FORMAT_R32G32_SFLOAT
-	};
-
-	VkVertexInputBindingDescription vert_input_bind = {
-		.binding = 0,
-		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-		.stride = sizeof(float) * 2
-	};
-
-
-	VkPipelineVertexInputStateCreateInfo vert_input_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		.vertexAttributeDescriptionCount = 1,
-		.pVertexAttributeDescriptions = &vert_input_attr,
-		.vertexBindingDescriptionCount = 1,
-		.pVertexBindingDescriptions = &vert_input_bind,
-	};
-
-	VkPipelineInputAssemblyStateCreateInfo input_assem_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-		.primitiveRestartEnable = VK_FALSE
-	};
-
-	VkViewport viewport = {
-		.width = (float)p_win->img_swap_extent.width,
-		.height = (float)p_win->img_swap_extent.height,
-		.minDepth = 0.f,
-		.maxDepth = 1.f
-	};
-
-	VkRect2D scissor = {
-		.extent = p_win->img_swap_extent
-	};
-
-
-	VkDynamicState dynamic_states[] = {
-		VK_DYNAMIC_STATE_VIEWPORT,
-		VK_DYNAMIC_STATE_SCISSOR
-	};
-
-	VkPipelineDynamicStateCreateInfo dynamic_state_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = COUNT_OF(dynamic_states),
-		.pDynamicStates = dynamic_states
-	};
-
-	VkPipelineViewportStateCreateInfo viewport_state_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		.pViewports = &viewport,
-		.viewportCount = 1,
-		.pScissors = &scissor,
-		.scissorCount = 1
-	};
-
-	VkPipelineRasterizationStateCreateInfo rasterizer_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-		.depthClampEnable = VK_FALSE,
-		.rasterizerDiscardEnable = VK_FALSE,
-		.polygonMode = VK_POLYGON_MODE_FILL,
-		.lineWidth = 1.f,
-		.cullMode = VK_CULL_MODE_BACK_BIT,
-		.frontFace = VK_FRONT_FACE_CLOCKWISE,
-		.depthBiasEnable = VK_FALSE
-	};
-
-	VkPipelineMultisampleStateCreateInfo multisample_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-	};
-
-	//Place for depth/stencil testing 
-
-
-	//Below differs for multiple frameuffers
-	VkPipelineColorBlendAttachmentState color_blend_attach = {
-		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-							VK_COLOR_COMPONENT_G_BIT |
-							VK_COLOR_COMPONENT_B_BIT |
-							VK_COLOR_COMPONENT_A_BIT,
-		.blendEnable = VK_FALSE
-	};
-
-	VkPipelineColorBlendStateCreateInfo color_blend_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		.logicOpEnable = VK_FALSE,
-		.pAttachments = &color_blend_attach,
-		.attachmentCount = 1
-	};
-
-	VkPushConstantRange push_const_range = {
-		.size = sizeof(float),
-		.offset = 0,
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT
-	};
-
-
-	VkPipelineLayoutCreateInfo layout_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.pushConstantRangeCount = 1,
-		.pPushConstantRanges = &push_const_range,
-		.setLayoutCount = 1,
-		.pSetLayouts = &p_win->descriptor_layout
-	};
-
-	result = vkCreatePipelineLayout(p_win->device, &layout_info,
-		p_win->p_host_alloc_calls,
-		&(p_win->graphics_pipeline_layout));
-	res--;
-	if (result != VK_SUCCESS)
-		goto layout_info;
-
-	VkGraphicsPipelineCreateInfo create_info = {
-		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-		.stageCount = COUNT_OF(shader_stages),
-		.pStages = shader_stages,
-
-		.pVertexInputState = &vert_input_info,
-		.pInputAssemblyState = &input_assem_info,
-		.pViewportState = &viewport_state_info,
-		.pRasterizationState = &rasterizer_info,
-		.pMultisampleState = &multisample_info,
-		.pDepthStencilState = NULL,
-		.pColorBlendState = &color_blend_info,
-		.pDynamicState = &dynamic_state_info,
-
-		.layout = p_win->graphics_pipeline_layout,
-
-		//This doesn't mean this pipeline should be used with this particular render pass
-		//, can be used with any compatible render pass
-		.renderPass = p_win->render_pass,
-		.subpass = 0,
-
-	};
-
-	result = vkCreateGraphicsPipelines(p_win->device, VK_NULL_HANDLE,
-		1, &create_info,
-		p_win->p_host_alloc_calls,
-		&(p_win->graphics_pipeline));
-
-	res--;
-	if (result != VK_SUCCESS)
-		goto create_graphics_pipeline;
-
-	res = 0;
-
-create_graphics_pipeline:
-
-layout_info:
-	vkDestroyShaderModule(p_win->device, vert_shader,
-		p_win->p_host_alloc_calls);
-	vkDestroyShaderModule(p_win->device, frag_shader,
-		p_win->p_host_alloc_calls);
-
-	return res;
+    return CREATE_SHADER_MODULE_FROM_FILE_OK;
 }
 
+struct GraphicsPipelineCreationInfos {
+    VkPipelineDynamicStateCreateInfo dynamic_state;
+    VkPipelineColorBlendStateCreateInfo color_blend_state;
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state;
+    VkPipelineMultisampleStateCreateInfo multisample_state;
+    VkPipelineRasterizationStateCreateInfo rasterization_state;
+    VkPipelineViewportStateCreateInfo viewport_state;
+    VkPipelineTessellationStateCreateInfo tessellation_state;
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_state;
+    VkPipelineVertexInputStateCreateInfo vertex_input_state;
+    VkPipelineCreateFlags flags;
+};
+typedef struct GraphicsPipelineCreationInfos GraphicsPipelineCreationInfos;
 
-int create_sync_objects(GlobalData* p_win) {
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+GraphicsPipelineCreationInfos default_graphics_pipeline_creation_infos() {
+    GraphicsPipelineCreationInfos infos;
 
-	p_win->in_flight_fences = malloc(p_win->max_frames_in_flight * sizeof(VkFence));
-	res--;
-	if (!p_win->in_flight_fences)
-		goto clear;
+    static const VkVertexInputBindingDescription default_input_bindings[] = { {
+      .binding = 0,
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+      .stride = sizeof(float),
+    } };
 
-	p_win->render_finished_semaphores = malloc(p_win->max_frames_in_flight * sizeof(VkSemaphore));
-	res--;
-	if (!p_win->render_finished_semaphores)
-		goto clear;
+    static const VkVertexInputAttributeDescription default_input_attrs[] = {
 
-	p_win->image_available_semaphores = malloc(p_win->max_frames_in_flight * sizeof(VkSemaphore));
-	res--;
-	if (!p_win->image_available_semaphores)
-		goto clear;
+        {
+          .offset = 0,
+          .binding = 0,
+          .location = 0,
+          .format = VK_FORMAT_R32G32_SFLOAT,
+        }
 
-	VkSemaphoreCreateInfo sema_create_info = {
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-	};
+    };
 
-	VkFenceCreateInfo fence_create_info = {
-		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		.flags = VK_FENCE_CREATE_SIGNALED_BIT,
-	};
+    infos.vertex_input_state = (VkPipelineVertexInputStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .pVertexBindingDescriptions = default_input_bindings,
+        .vertexBindingDescriptionCount = COUNT_OF(default_input_bindings),
+        .pVertexAttributeDescriptions = default_input_attrs,
+        .vertexAttributeDescriptionCount = COUNT_OF(default_input_attrs),
+    };
 
-	for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
+    infos.input_assembly_state = (VkPipelineInputAssemblyStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE
+    };
 
-		result = vkCreateFence(p_win->device, &fence_create_info,
-			p_win->p_host_alloc_calls,
-			p_win->in_flight_fences + i);
-		res--;
-		if (result != VK_SUCCESS)
-			return res;
+    static const VkDynamicState default_dynamic_states[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
 
-		result = vkCreateSemaphore(p_win->device, &sema_create_info,
-			p_win->p_host_alloc_calls,
-			p_win->image_available_semaphores + i);
-		res--;
-		if (result != VK_SUCCESS)
-			return res;
+    infos.dynamic_state = (VkPipelineDynamicStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = COUNT_OF(default_dynamic_states),
+        .pDynamicStates = default_dynamic_states,
+    };
 
-		result = vkCreateSemaphore(p_win->device, &sema_create_info,
-			p_win->p_host_alloc_calls,
-			p_win->render_finished_semaphores + i);
-		res--;
-		if (result != VK_SUCCESS)
-			return res;
-	}
-	res = 0;
+    infos.viewport_state = (VkPipelineViewportStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .scissorCount = 1,
+    };
 
-clear:
-	return res;
+    infos.rasterization_state = (VkPipelineRasterizationStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .lineWidth = 1.f,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE
+    };
+
+    infos.multisample_state = (VkPipelineMultisampleStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+    };
+
+    // Place for depth/stencil testing
+
+    static const VkPipelineColorBlendAttachmentState default_color_blend_attaches[] = {
+        { .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+          .blendEnable = VK_FALSE }
+    };
+
+    infos.color_blend_state = (VkPipelineColorBlendStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .pAttachments = default_color_blend_attaches,
+        .attachmentCount = COUNT_OF(default_color_blend_attaches),
+    };
+
+    return infos;
 }
 
+enum CreateGraphicsPipeline {
+    CREATE_GRAPHICS_PIPELINE_FAILED = -0x7fff,
 
-int create_command_buffers(GlobalData* p_win) {
+    CREATE_GRAPHICS_PIPELINE_SHADER_MODULES_CREATION_FAILED,
+    CREATE_GRAPHICS_PIPELINE_OK = 0,
+};
 
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+typedef struct {
+    VkDevice device;
+    GraphicsPipelineCreationInfos create_infos;
+    VkPipelineLayout pipe_layout;
+    const char *vert_shader_file;
+    const char *frag_shader_file;
+    const char *geom_shader_file;
+    VkRenderPass compatible_render_pass;
+    uint32_t subpass_index;
 
-	p_win->cmd_buffer = malloc(p_win->max_frames_in_flight * sizeof(VkCommandBuffer));
-	res--;
-	if (!p_win->cmd_buffer)
-		return res;
+    VkPipeline *p_pipeline;
+} CreateGraphicsPipelineParam;
 
-	VkCommandBufferAllocateInfo alloc_info = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.commandPool = p_win->cmd_pool,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = p_win->max_frames_in_flight,
-	};
+int create_graphics_pipeline(StackAllocator *stk_allocr, size_t stk_offset,
+                             VkAllocationCallbacks *alloc_callbacks,
+                             CreateGraphicsPipelineParam param) {
 
-	result = vkAllocateCommandBuffers(p_win->device, &alloc_info, p_win->cmd_buffer);
-	res--;
-	if (result != VK_SUCCESS)
-		goto alloc_cmd_buffer;
+    VkResult result = VK_SUCCESS;
 
+    uint32_t shader_count = 0;
 
-	res = 0;
-alloc_cmd_buffer:
-	return res;
+    VkShaderModule shader_modules[3] = { 0 };
+    VkPipelineShaderStageCreateInfo shader_infos[3] = { 0 };
+
+    CreateShaderModuleFromFileParam sh_param = { .device = param.device,
+                                                 .p_shader_module = shader_modules };
+    int shader_creation_fail = 0;
+    sh_param.shader_file_name = param.vert_shader_file;
+    if (create_shader_module_from_file(stk_allocr, stk_offset, alloc_callbacks,
+                                       sh_param) >= 0)
+        shader_creation_fail = 1 && shader_creation_fail;
+    shader_infos[shader_count] = (VkPipelineShaderStageCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = shader_modules[shader_count],
+        .pName = "main",
+    };
+
+    shader_count++;
+    sh_param.p_shader_module++;
+    sh_param.shader_file_name = param.frag_shader_file;
+    if (create_shader_module_from_file(stk_allocr, stk_offset, alloc_callbacks,
+                                       sh_param) < 0)
+        shader_creation_fail = 1 && shader_creation_fail;
+    shader_infos[shader_count] = (VkPipelineShaderStageCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = shader_modules[shader_count],
+        .pName = "main",
+    };
+    shader_count++;
+    sh_param.p_shader_module++;
+
+    if (param.geom_shader_file) {
+        sh_param.shader_file_name = param.geom_shader_file;
+        if (create_shader_module_from_file(stk_allocr, stk_offset, alloc_callbacks,
+                                           sh_param) < 0)
+            shader_creation_fail = 1 && shader_creation_fail;
+        shader_infos[shader_count] = (VkPipelineShaderStageCreateInfo){
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_GEOMETRY_BIT,
+            .module = shader_modules[shader_count],
+            .pName = "main",
+        };
+        shader_count++;
+    }
+
+    if (shader_creation_fail) {
+        for (int i = 0; i < COUNT_OF(shader_modules); ++i) {
+            if (shader_modules[i] != VK_NULL_HANDLE)
+                vkDestroyShaderModule(param.device, shader_modules[i], alloc_callbacks);
+        }
+        return CREATE_GRAPHICS_PIPELINE_SHADER_MODULES_CREATION_FAILED;
+    }
+
+    VkGraphicsPipelineCreateInfo create_info = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = shader_count,
+        .pStages = shader_infos,
+
+        .pVertexInputState = &param.create_infos.vertex_input_state,
+        .pInputAssemblyState = &param.create_infos.input_assembly_state,
+        .pViewportState = &param.create_infos.viewport_state,
+        .pRasterizationState = &param.create_infos.rasterization_state,
+        .pMultisampleState = &param.create_infos.multisample_state,
+        .pDepthStencilState = &param.create_infos.depth_stencil_state,
+        .pColorBlendState = &param.create_infos.color_blend_state,
+        .pDynamicState = &param.create_infos.dynamic_state,
+
+        .layout = param.pipe_layout,
+        .basePipelineIndex = -1,
+
+        .renderPass = param.compatible_render_pass,
+        .subpass = param.subpass_index,
+
+    };
+
+    result = vkCreateGraphicsPipelines(param.device, VK_NULL_HANDLE, 1, &create_info,
+                                       alloc_callbacks, param.p_pipeline);
+
+    for (int i = 0; i < COUNT_OF(shader_modules); ++i) {
+        if (shader_modules[i] != VK_NULL_HANDLE)
+            vkDestroyShaderModule(param.device, shader_modules[i], alloc_callbacks);
+    }
+
+    if (result != VK_SUCCESS)
+        return CREATE_GRAPHICS_PIPELINE_FAILED;
+
+    return CREATE_GRAPHICS_PIPELINE_OK;
 }
 
+typedef struct {
+    VkDevice device;
 
-int create_descriptor_layout(GlobalData* p_win) {
+    VkPipeline *p_pipeline;
+} ClearGraphicsPipelineParam;
+void clear_graphics_pipeline(VkAllocationCallbacks *alloc_callbacks,
+                             ClearGraphicsPipelineParam param, int err_code) {
 
-	VkResult result = VK_SUCCESS;
-	int res = 0;
+    switch (err_code) {
+    case CREATE_GRAPHICS_PIPELINE_OK:
+        vkDestroyPipeline(param.device, *param.p_pipeline, alloc_callbacks);
 
+    case CREATE_GRAPHICS_PIPELINE_SHADER_MODULES_CREATION_FAILED:
 
-	VkDescriptorSetLayoutBinding bind = {
-		.binding = 0,
-		.descriptorCount = 1,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-	};
+    case CREATE_GRAPHICS_PIPELINE_FAILED:
 
-	VkDescriptorSetLayoutCreateInfo create_info = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = 1,
-		.pBindings = &bind,
-	};
+        param.p_pipeline = VK_NULL_HANDLE;
 
-
-	result = vkCreateDescriptorSetLayout(p_win->device, &create_info,
-		p_win->p_host_alloc_calls,
-		&p_win->descriptor_layout);
-	res--;
-	if (result != VK_SUCCESS)
-		return res;
-
-
-	res = 0;
-
-
-	return res;
-
+        break;
+    }
 }
 
+enum CreateSemaphoresCodes {
+    CREATE_SEMAPHORES_FAILED = -0x7fff,
+    CREATE_SEMAPHORES_ALLOC_FAIL,
+    CREATE_SEMAPHORES_OK = 0,
+};
 
+typedef struct {
+    uint32_t semaphores_count;
+    VkDevice device;
 
+    VkSemaphore **p_semaphores;
+} CreateSemaphoresParam;
+int create_semaphores(StackAllocator *stk_allocr, size_t stk_offset,
+                      VkAllocationCallbacks *alloc_callbacks,
+                      CreateSemaphoresParam param) {
 
+    VkResult result = VK_SUCCESS;
 
-int clear_descriptor_layout(GlobalData* p_win) {
-	vkDestroyDescriptorSetLayout(p_win->device, p_win->descriptor_layout,
-		p_win->p_host_alloc_calls);
-	return 0;
+    *(param.p_semaphores) = malloc(param.semaphores_count * sizeof(VkSemaphore));
+
+    if (!(*param.p_semaphores))
+        return CREATE_SEMAPHORES_ALLOC_FAIL;
+
+    // p_win->render_finished_semaphores = malloc(p_win->max_frames_in_flight *
+    // sizeof(VkSemaphore)); res--; if (!p_win->render_finished_semaphores)
+    // goto
+    // clear;
+
+    // p_win->image_available_semaphores = malloc(p_win->max_frames_in_flight *
+    // sizeof(VkSemaphore)); res--; if (!p_win->image_available_semaphores)
+    // goto
+    // clear;
+
+    VkSemaphoreCreateInfo sema_create_info = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+
+    for (int i = 0; i < param.semaphores_count; ++i) {
+
+        result = vkCreateSemaphore(param.device, &sema_create_info, alloc_callbacks,
+                                   param.p_semaphores[0] + i);
+
+        if (result != VK_SUCCESS)
+            break;
+    }
+
+    if (result != VK_SUCCESS)
+        return CREATE_SEMAPHORES_FAILED;
+
+    return CREATE_SEMAPHORES_OK;
 }
 
+typedef struct {
+    VkDevice device;
+    size_t semaphores_count;
 
-int clear_sync_objects(GlobalData* p_win) {
+    VkSemaphore **p_semaphores;
+} ClearSemaphoresParam;
 
-	for (int i = 0; i < p_win->max_frames_in_flight; ++i) {
-		vkDestroySemaphore(p_win->device, p_win->render_finished_semaphores[i],
-			p_win->p_host_alloc_calls);
-		vkDestroySemaphore(p_win->device, p_win->image_available_semaphores[i],
-			p_win->p_host_alloc_calls);
-		vkDestroyFence(p_win->device, p_win->in_flight_fences[i],
-			p_win->p_host_alloc_calls);
-	}
-	free(p_win->in_flight_fences);
-	free(p_win->image_available_semaphores);
-	free(p_win->render_finished_semaphores);
+void clear_semaphores(VkAllocationCallbacks *alloc_callbacks, ClearSemaphoresParam param,
+                      int err_codes) {
 
-	return 0;
+    switch (err_codes) {
+    case CREATE_SEMAPHORES_OK:
+        for (int i = 0; i < param.semaphores_count; ++i) {
+            if (param.p_semaphores[0][i])
+                vkDestroySemaphore(param.device, param.p_semaphores[0][i],
+                                   alloc_callbacks);
+        }
+
+    case CREATE_SEMAPHORES_FAILED:
+        free(param.p_semaphores[0]);
+
+    case CREATE_SEMAPHORES_ALLOC_FAIL:
+        *(param.p_semaphores) = NULL;
+        break;
+    }
 }
 
+enum CreateFencesCodes {
+    CREATE_FENCES_FAILED = -0x7fff,
+    CREATE_FENCES_ALLOC_FAILED,
+    CREATE_FENCES_OK = 0,
+};
 
-int clear_command_buffers(GlobalData* p_win) {
-	free(p_win->cmd_buffer);
-	return 0;
+typedef struct {
+    uint32_t fences_count;
+    VkDevice device;
+
+    VkFence **p_fences;
+} CreateFencesParam;
+int create_fences(StackAllocator *stk_allocr, size_t stk_offset,
+                  VkAllocationCallbacks *alloc_callbacks, CreateFencesParam param) {
+    VkResult result = VK_SUCCESS;
+
+    param.p_fences[0] = malloc(param.fences_count * sizeof(VkFence));
+
+    if (!param.p_fences[0])
+        return CREATE_FENCES_ALLOC_FAILED;
+
+    // p_win->in_flight_fences = malloc(p_win->max_frames_in_flight *
+    // sizeof(VkFence));
+
+    VkFenceCreateInfo fence_create_info = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+    };
+
+    for (int i = 0; i < param.fences_count; ++i) {
+
+        result = vkCreateFence(param.device, &fence_create_info, alloc_callbacks,
+                               param.p_fences[0] + i);
+        if (result != VK_SUCCESS)
+            break;
+    }
+
+    if (result != VK_SUCCESS)
+        return CREATE_FENCES_FAILED;
+
+    return CREATE_FENCES_OK;
 }
 
+typedef struct {
+    VkDevice device;
+    size_t fences_count;
 
-int clear_pipeline(GlobalData* p_win) {
-	vkDestroyPipeline(p_win->device, p_win->graphics_pipeline,
-		p_win->p_host_alloc_calls);
-	vkDestroyPipelineLayout(p_win->device, p_win->graphics_pipeline_layout,
-		p_win->p_host_alloc_calls);
+    VkFence **p_fences;
+} ClearFencesParam;
 
-	return 0;
+void clear_fences(VkAllocationCallbacks *alloc_callbacks, ClearFencesParam param,
+                  int err_codes) {
+
+    switch (err_codes) {
+    case CREATE_FENCES_OK:
+        for (int i = 0; i < param.fences_count; ++i) {
+            if (param.p_fences[0][i])
+                vkDestroyFence(param.device, param.p_fences[0][i], alloc_callbacks);
+        }
+
+    case CREATE_FENCES_FAILED:
+        free(param.p_fences[0]);
+
+    case CREATE_FENCES_ALLOC_FAILED:
+        *(param.p_fences) = NULL;
+        break;
+    }
 }
 
+enum CreatePrimaryCommandBuffersCodes {
+    CREATE_PRIMARY_COMMAND_BUFFERS_FAILED = -0x7fff,
+    CREATE_PRIMARY_COMMAND_BUFFERS_ALLOC_FAILED,
+    CREATE_PRIMARY_COMMAND_BUFFERS_OK = 0,
+};
 
-int clear_render_pass(GlobalData* p_win) {
-	vkDestroyRenderPass(p_win->device, p_win->render_pass,
-		p_win->p_host_alloc_calls);
-	return 0;
+typedef struct {
+    VkDevice device;
+    VkCommandPool cmd_pool;
+    uint32_t cmd_buffer_count;
+
+    VkCommandBuffer **p_cmd_buffers;
+} CreatePrimaryCommandBuffersParam;
+int create_primary_command_buffers(StackAllocator *stk_allocr, size_t stk_offset,
+                                   VkAllocationCallbacks *alloc_callbacks,
+                                   CreatePrimaryCommandBuffersParam param) {
+
+    VkResult result = VK_SUCCESS;
+
+    param.p_cmd_buffers[0] = malloc(param.cmd_buffer_count * sizeof(VkCommandBuffer));
+
+    if (!param.p_cmd_buffers[0])
+        return CREATE_PRIMARY_COMMAND_BUFFERS_ALLOC_FAILED;
+
+    VkCommandBufferAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = param.cmd_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = param.cmd_buffer_count,
+    };
+
+    result = vkAllocateCommandBuffers(param.device, &alloc_info, param.p_cmd_buffers[0]);
+
+    if (result != VK_SUCCESS)
+        return CREATE_PRIMARY_COMMAND_BUFFERS_FAILED;
+
+    return CREATE_PRIMARY_COMMAND_BUFFERS_OK;
 }
+
+typedef struct {
+
+    VkCommandBuffer **p_cmd_buffers;
+} ClearPrimaryCommandBuffersParam;
+void clear_primary_command_buffers(VkAllocationCallbacks *alloc_callbacks,
+                                   ClearPrimaryCommandBuffersParam param, int err_codes) {
+    switch (err_codes) {
+    case CREATE_PRIMARY_COMMAND_BUFFERS_OK:
+
+    case CREATE_PRIMARY_COMMAND_BUFFERS_FAILED:
+        free(param.p_cmd_buffers[0]);
+
+    case CREATE_PRIMARY_COMMAND_BUFFERS_ALLOC_FAILED:
+        param.p_cmd_buffers[0] = NULL;
+
+        break;
+    }
+}
+
+//
+// int create_descriptor_layout(GlobalData* p_win) {
+//
+//	VkResult result = VK_SUCCESS;
+//	int res = 0;
+//
+//
+//	VkDescriptorSetLayoutBinding bind = {
+//		.binding = 0,
+//		.descriptorCount = 1,
+//		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+//		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+//	};
+//
+//	VkDescriptorSetLayoutCreateInfo create_info = {
+//		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+//		.bindingCount = 1,
+//		.pBindings = &bind,
+//	};
+//
+//
+//	result = vkCreateDescriptorSetLayout(p_win->device, &create_info,
+//		p_win->p_host_alloc_calls,
+//		&p_win->descriptor_layout);
+//	res--;
+//	if (result != VK_SUCCESS)
+//		return res;
+//
+//
+//	res = 0;
+//
+//
+//	return res;
+//
+//}
+//
+//
+//
+//
+//
+// int clear_descriptor_layout(GlobalData* p_win) {
+//	vkDestroyDescriptorSetLayout(p_win->device, p_win->descriptor_layout,
+//		p_win->p_host_alloc_calls);
+//	return 0;
+//}

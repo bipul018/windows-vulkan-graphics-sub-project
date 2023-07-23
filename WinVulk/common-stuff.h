@@ -363,7 +363,7 @@ int choose_swapchain_details(StackAllocator *stk_allocr,
     // Choose best if availabe else the first format
     *(param.img_format) = surface_formats[0];
     for (uint32_t i = 0; i < formats_count; ++i) {
-        if (surface_formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
+        if (surface_formats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
             surface_formats[i].colorSpace ==
               VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             *(param.img_format) = surface_formats[i];

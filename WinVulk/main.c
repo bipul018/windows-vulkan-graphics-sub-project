@@ -476,7 +476,7 @@ int main(int argc, char *argv[]) {
     // For now , required memory type will be hardcoded, later must be
     // properly evaluated, maybe after textures are implemented
     uint32_t memory_type_flags = 255;
-    size_t total_gpu_memory = sizeof(VertexInput) * 200;
+    size_t total_gpu_memory = sizeof(VertexInput) * 2000;
     // Now create gpu memory allocator
     GPUAllocator gpu_mem_allocr = { 0 };
     {
@@ -556,8 +556,8 @@ int main(int argc, char *argv[]) {
         //
 
         const int divs = 3;
-        const int n_verts = divs * 4 + 2;
-        const int n_indxs = 3 * 8 * divs;
+        int n_verts = divs * 4 + 2;
+        int n_indxs = 3 * 8 * divs;
         const int radius = 200;
         const int depth = 300;
         const int bevel = 10;
@@ -687,6 +687,16 @@ int main(int argc, char *argv[]) {
             verts[i].normal = vec3_normalize(verts[i].pos);
         }*/
 
+        LoadSphereOutput outs =
+          load_sphere_uv(ptr_stk_allocr, stk_offset, 7, 200);
+
+        
+        n_verts = outs.vertex_count;
+        n_indxs = outs.index_count;
+        verts = outs.vertices;
+        indxs = outs.indices;
+
+
         if (create_model(
               ptr_alloc_callbacks,
               (CreateModelParam){
@@ -751,9 +761,13 @@ int main(int argc, char *argv[]) {
           VK_POLYGON_MODE_FILL;
         /*
           VK_POLYGON_MODE_LINE;
+          VK_POLYGON_MODE_POINT;
         */
-
-
+        create_infos.rasterization_state.cullMode =
+          VK_CULL_MODE_BACK_BIT;
+        /*
+        create_infos.rasterization_state.cullMode = VK_CULL_MODE_NONE;
+        */
         err_code = create_graphics_pipeline(
           ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateGraphicsPipelineParam){
@@ -784,8 +798,8 @@ int main(int argc, char *argv[]) {
     Vec3 world_min = { -300,-300,-900};
     Vec3 world_max = { 300, 300, 900 };
 
-    Vec3 light = { 0.f, 0.f, 1.f };
-
+    Vec3 light = { 0.f, 1.f, 1.f };
+    //light = vec3_normalize(light);
     MSG msg = { 0 };
     while (msg.message != WM_QUIT) {
         // Setup miscelannous data if needed

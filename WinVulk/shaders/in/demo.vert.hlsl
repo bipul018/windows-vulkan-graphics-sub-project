@@ -19,7 +19,7 @@ struct VSOutput
 {
     float4 Position : SV_POSITION;
     [[vk::location (0) ]] float4 Color : COLOR0;
-    [[vk::location (1) ]]float4 Normal : NORMAL0;
+    [[vk::location (1) ]]float4 Normal : NORMAL;
     [[vk::location (2) ]]float4 Light : COLOR1;
 };
 
@@ -37,11 +37,12 @@ void printmat(float4x4 mat)
 VSOutput
     main(VSInput input)
 {
-    
+   
     VSOutput output = (VSOutput) 0;
     float4x4 model = float4x4(push_data.model_light[0], push_data.model_light[1], push_data.model_light[2], float4(0.f, 0.f, 0.f, 1.f));
     output.Color = float4(input.Color.xyz, 1.0);
     output.Light = push_data.model_light[3];
+    
     output.Normal = float4(input.Normal.xyz, 0.f);
     output.Normal = normalize(mul(model, output.Normal));
     //output.Color = mul(output.Color, -dot(normalize(output.Normal), output.Light));
@@ -51,7 +52,8 @@ VSOutput
     
     //printf("%f,%f,%f->%f,%f,%f\n", input.Position.x, input.Position.y, input.Position.z, output.Position.x, output.Position.y, output.Position.z);    
     //printmat(push_data.view_proj);
-    //printf("%f %f %f\n", output.Normal.x, output.Normal.y, output.Normal.z, output.Normal.w);
+    //printf("%f %f %f : %f %f %f %f\n", input.Normal.x, input.Normal.y, input.Normal.z, output.Normal.x, output.Normal.y, output.Normal.z, output.Normal.w);
+    //printf("%f %f %f \n", output.Normal.x, output.Normal.y, output.Normal.z, output.Normal.w);
     //printf("%f %f %f\n", output.Light.x, output.Light.y, output.Light.z, output.Light.w);
     return output;
 }

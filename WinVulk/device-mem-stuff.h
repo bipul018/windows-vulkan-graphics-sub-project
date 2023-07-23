@@ -9,6 +9,8 @@ struct GPUAllocator {
     void *mapped_memory;
     VkDeviceSize mem_size;
     VkDeviceSize curr_offset;
+    size_t atom_size;
+    uint32_t memory_type;
 };
 
 typedef struct GPUAllocator GPUAllocator;
@@ -49,6 +51,14 @@ int allocate_device_memory(VkAllocationCallbacks *alloc_callbacks,
     }
     if (mem_inx == -1)
         return ALLOCATE_DEVICE_MEMORY_NOT_AVAILABLE_TYPE;
+
+    VkPhysicalDeviceProperties device_props;
+    vkGetPhysicalDeviceProperties(param.phy_device, &device_props);
+
+    param.p_gpu_allocr->atom_size =
+      device_props.limits.nonCoherentAtomSize;
+    param.p_gpu_allocr->memory_type = mem_inx;
+
 
     VkMemoryAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -119,9 +129,9 @@ typedef struct {
     size_t base_align;
     void *mapped_memory;
 } GpuAllocrAllocatedBuffer;
-int gpu_allocr_allocate_buffer(GPUAllocator *gpu_allocr,
-                               VkDevice device,
-                               GpuAllocrAllocatedBuffer *buffer_info) {
+int gpu_allocr_allocate_buffer(
+  GPUAllocator *gpu_allocr, VkDevice device,
+  GpuAllocrAllocatedBuffer *buffer_info) {
 
     buffer_info->base_align = max(1, buffer_info->base_align);
     size_t next_offset =
@@ -130,16 +140,101 @@ int gpu_allocr_allocate_buffer(GPUAllocator *gpu_allocr,
     if (next_offset > gpu_allocr->mem_size)
         return GPU_ALLOCR_ALLOCATE_BUFFER_NOT_ENOUGH_MEMORY;
 
-    if (vkBindBufferMemory(device, buffer_info->buffer,
-                           gpu_allocr->memory_handle,
-                           next_offset - buffer_info->total_amt) != VK_SUCCESS) {
+    if (vkBindBufferMemory(
+          device, buffer_info->buffer, gpu_allocr->memory_handle,
+          next_offset - buffer_info->total_amt) != VK_SUCCESS) {
         return GPU_ALLOCR_ALLOCATE_BUFFER_FAILED;
     }
     if (gpu_allocr->mapped_memory)
         buffer_info->mapped_memory =
-          (uint8_t *)(gpu_allocr->mapped_memory) +
-          next_offset - buffer_info->total_amt;
-    
+          (uint8_t *)(gpu_allocr->mapped_memory) + next_offset -
+          buffer_info->total_amt;
+
     gpu_allocr->curr_offset = next_offset;
     return GPU_ALLOCR_ALLOCTE_BUFFER_OK;
+}
+
+// Only for host visible and properly mapped memories
+VkResult gpu_allocr_flush_memory(VkDevice device, GPUAllocator allocr,
+                                 void *mapped_memory, size_t amount) {
+
+    VkDeviceSize offset =
+      (uint8_t *)mapped_memory - (uint8_t *)allocr.mapped_memory;
+
+    VkDeviceSize final = offset + amount;
+    offset = align_down_(offset, allocr.atom_size);
+    final = offset + align_up_(final - offset, allocr.atom_size);
+    final = min(final, allocr.mem_size);
+
+
+    return vkFlushMappedMemoryRanges(
+      device, 1,
+      &(VkMappedMemoryRange){
+        .memory = allocr.memory_handle,
+        .offset = offset,
+        .size = final - offset,
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE });
+}
+
+//Assumes a compatible memory is allocated
+enum CreateAndAllocateBufferCodes {
+    CREATE_AND_ALLOCATE_BUFFER_DUMMY_ERR_CODE = -0x7fff,
+    CREATE_AND_ALLOCATE_BUFFER_BUFFER_ALLOC_FAILED,
+    CREATE_AND_ALLOCATE_BUFFER_INCOMPATIBLE_MEMORY,
+    CREATE_AND_ALLOCATE_BUFFER_CREATE_BUFFER_FAILED,
+
+
+    CREATE_AND_ALLOCATE_BUFFER_OK = 0,
+};
+typedef struct {
+    GpuAllocrAllocatedBuffer *p_buffer;
+    VkSharingMode share_mode;
+    VkBufferUsageFlags usage;
+    size_t size;
+
+}CreateAndAllocateBufferParam;
+int create_and_allocate_buffer(VkAllocationCallbacks * alloc_callbacks,
+                                GPUAllocator *p_allocr,
+                                VkDevice device,
+                                CreateAndAllocateBufferParam param) { 
+    
+    VkBufferCreateInfo create_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .usage = param.usage,
+        .sharingMode = param.share_mode,
+        .size = param.size,
+    };
+
+    if (vkCreateBuffer(device, &create_info, alloc_callbacks,
+                       &param.p_buffer->buffer) != VK_SUCCESS)
+        return CREATE_AND_ALLOCATE_BUFFER_CREATE_BUFFER_FAILED;
+
+    //VkDeviceBufferMemoryRequirements info_struct = {
+    //    .sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS,
+    //    .pCreateInfo = &create_info,
+    //};
+    //VkMemoryRequirements2 mem_reqs = {
+    //    .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+    //};
+    //vkGetDeviceBufferMemoryRequirements(device, &info_struct,
+    //                                    &mem_reqs);
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(device, param.p_buffer->buffer,
+                                  &mem_reqs);
+
+    param.p_buffer->base_align = mem_reqs.alignment;
+    param.p_buffer->total_amt = mem_reqs.size;
+    
+
+    //if ((mem_reqs.memoryRequirements.memoryTypeBits &
+    if ((mem_reqs.memoryTypeBits &
+         p_allocr->memory_type) == 0)
+        return CREATE_AND_ALLOCATE_BUFFER_INCOMPATIBLE_MEMORY;
+
+    if (gpu_allocr_allocate_buffer(p_allocr, device, param.p_buffer) <
+        0)
+        return CREATE_AND_ALLOCATE_BUFFER_BUFFER_ALLOC_FAILED;
+
+    return CREATE_AND_ALLOCATE_BUFFER_OK;
 }

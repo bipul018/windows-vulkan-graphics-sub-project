@@ -10,27 +10,6 @@ struct SwapchainEntities {
     VkImageView *img_views;
     VkFramebuffer *framebuffers;
 };
-// Data like window handle, size, surface, images, framebuffers, swapchains
-struct WindowData {
-    HANDLE win_handle;
-    int width;
-    int height;
-
-    VkSurfaceKHR surface;
-
-    uint32_t min_img_count;
-    VkSurfaceFormatKHR img_format;
-    VkSurfaceTransformFlagBitsKHR img_surface_transform_flag;
-    VkPresentModeKHR img_present_mode;
-    VkExtent2D img_swap_extent;
-
-    // A struct of everything that depends on swapchain
-    struct SwapchainEntities curr_swapchain;
-
-    struct SwapchainEntities old_swapchain;
-};
-
-typedef struct WindowData WindowData;
 
 enum CreateSwapchainCodes {
     CREATE_SWAPCHAIN_FAILED = -0x7fff,
@@ -200,13 +179,18 @@ void clear_swapchain(VkAllocationCallbacks *alloc_callbacks, ClearSwapchainParam
 
     case CREATE_SWAPCHAIN_OK:
     case CREATE_SWAPCHAIN_IMAGE_VIEW_CREATE_FAIL:
-        for (int i = 0; i < param.p_swapchain_data->img_count; ++i) {
-            if (param.p_swapchain_data->img_views[i])
-                vkDestroyImageView(param.device, param.p_swapchain_data->img_views[i],
-                                   alloc_callbacks);
-        }
+        if (param.p_swapchain_data->img_views) {
+            for (int i = 0; i < param.p_swapchain_data->img_count;
+                 ++i) {
+                if (param.p_swapchain_data->img_views[i])
+                    vkDestroyImageView(
+                      param.device,
+                      param.p_swapchain_data->img_views[i],
+                      alloc_callbacks);
+            }
 
-        free(param.p_swapchain_data->img_views);
+            free(param.p_swapchain_data->img_views);
+        }
     case CREATE_SWAPCHAIN_IMAGE_VIEW_ALLOC_FAIL:
         param.p_swapchain_data->img_views = NULL;
 
@@ -294,15 +278,16 @@ void clear_framebuffers(VkAllocationCallbacks *alloc_callbacks,
     switch (err_codes) {
     case CREATE_FRAMEBUFFERS_OK:
     case CREATE_FRAMEBUFFERS_FAILED:
-        for (int i = 0; i < param.framebuffer_count; ++i) {
-            if (param.p_framebuffers[0][i])
-                vkDestroyFramebuffer(param.device, param.p_framebuffers[0][i],
-                                     alloc_callbacks);
-            else
-                break;
-        }
+        if (param.p_framebuffers[0]) {
+            for (int i = 0; i < param.framebuffer_count; ++i) {
+                if (param.p_framebuffers[0][i])
+                    vkDestroyFramebuffer(param.device,
+                                         param.p_framebuffers[0][i],
+                                         alloc_callbacks);
+            }
 
-        free(param.p_framebuffers[0]);
+            free(param.p_framebuffers[0]);
+        }
     case CREATE_FRAMEBUFFERS_INT_ALLOC_FAILED:
         param.p_framebuffers[0] = NULL;
     }

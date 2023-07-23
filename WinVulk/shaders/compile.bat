@@ -1,11 +1,11 @@
 cd in\
-for %%v in (*.vert) do (
+for %%f in (*.frag.hlsl) do (
 	cd ..
-	D:\prgming\VulkanSDK\1.3.231.1\Bin\glslc.exe in\%%v -o out\%%v.spv
+	D:\prgming\VulkanSDK\1.3.231.1\Bin\dxc.exe -spirv -T ps_6_0 -E main .\in\%%f -Fo .\out\%%f.spv
 	cd in\
 )
-for %%v in (*.frag) do (
+for %%v in (*.vert.hlsl) do (
 	cd ..
-	D:\prgming\VulkanSDK\1.3.231.1\Bin\glslc.exe in\%%v -o out\%%v.spv
+	D:\prgming\VulkanSDK\1.3.231.1\Bin\dxc.exe -spirv -T vs_6_0 -E main .\in\%%v -Fo .\out\%%v.spv
 	cd in\
 )

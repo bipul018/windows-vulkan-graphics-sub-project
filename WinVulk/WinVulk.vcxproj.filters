@@ -42,5 +42,15 @@
     <ClInclude Include="old-main.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="vectors.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="misc_tools.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="shaders\in\demo.vert.hlsl" />
+    <FxCompile Include="shaders\in\demo.frag.hlsl" />
   </ItemGroup>
 </Project>

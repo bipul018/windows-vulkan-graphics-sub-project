@@ -9,14 +9,8 @@
 #include "common-stuff.h"
 #include "device-mem-stuff.h"
 #include "render-stuff.h"
+#include "vectors.h"
 #include "window-stuff.h"
-
-struct WinProcData {
-    UINT_PTR timer_id;
-    int width;
-    int height;
-    HANDLE win_handle;
-};
 
 
 void *VKAPI_PTR cb_allocation_fxn(void *user_data, size_t size,
@@ -45,186 +39,65 @@ void VKAPI_PTR cb_free_fxn(void *user_data, void *p_mem) {
     _aligned_free(p_mem);
 }
 
-enum BeginRenderingOperationsCodes {
-    BEGIN_RENDERING_OPERATIONS_FAILED = -0x7fff,
-    BEGIN_RENDERING_OPERATIONS_BEGIN_CMD_BUFFER_FAIL,
-    BEGIN_RENDERING_OPERATIONS_WAIT_FOR_FENCE_FAIL,
-    BEGIN_RENDERING_OPERATIONS_OK = 0,
-    BEGIN_RENDERING_OPERATIONS_TRY_RECREATE_SWAPCHAIN,
+struct WinProcData {
+    UINT_PTR timer_id;
+    int width;
+    int height;
+    HANDLE win_handle;
+
+    // Data that are UI controlled
+
+    // Controlled by qweasd keys
+    Vec3 *qweasd;
+    // Controlled by uiojkl keys
+    Vec3 *uiojkl;
+
+    float *scroll;
 };
 
-typedef struct {
-    VkDevice device;
-    VkSwapchainKHR swapchain;
-    VkRenderPass render_pass;
-    VkFramebuffer *framebuffers;
-    VkExtent2D framebuffer_render_extent;
-    VkCommandBuffer cmd_buffer;
-    VkSemaphore present_done_semaphore;
-    VkFence render_done_fence;
-
-
-    uint32_t *p_img_inx;
-
-} BeginRenderingOperationsParam;
-int begin_rendering_operations(BeginRenderingOperationsParam param) {
-    VkResult result = VK_SUCCESS;
-
-    result = vkWaitForFences(
-      param.device, 1, &param.render_done_fence, VK_TRUE, UINT64_MAX);
-
-    if (result != VK_SUCCESS)
-        return BEGIN_RENDERING_OPERATIONS_WAIT_FOR_FENCE_FAIL;
-
-    result = vkAcquireNextImageKHR(
-      param.device, param.swapchain, UINT64_MAX,
-      param.present_done_semaphore, VK_NULL_HANDLE, param.p_img_inx);
-
-    if (result == VK_ERROR_OUT_OF_DATE_KHR ||
-        !param.framebuffer_render_extent.width ||
-        !param.framebuffer_render_extent.height) {
-        return BEGIN_RENDERING_OPERATIONS_TRY_RECREATE_SWAPCHAIN;
-    }
-
-
-    vkResetCommandBuffer(param.cmd_buffer, 0);
-
-
-    VkCommandBufferBeginInfo cmd_begin_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-
-    };
-
-    result = vkBeginCommandBuffer(param.cmd_buffer, &cmd_begin_info);
-
-    if (result != VK_SUCCESS)
-        return BEGIN_RENDERING_OPERATIONS_BEGIN_CMD_BUFFER_FAIL;
-
-    VkClearValue img_clear_col = { { { 0.0f, 0.0f, 0.0f, 1.0f } } };
-
-    VkRenderPassBeginInfo rndr_begin_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = param.render_pass,
-        .framebuffer = param.framebuffers[*param.p_img_inx],
-        .renderArea = { .offset = { 0, 0 },
-                        .extent = param.framebuffer_render_extent },
-        .clearValueCount = 1,
-        .pClearValues = &img_clear_col,
-
-    };
-    vkCmdBeginRenderPass(param.cmd_buffer, &rndr_begin_info,
-                         VK_SUBPASS_CONTENTS_INLINE);
-    return BEGIN_RENDERING_OPERATIONS_OK;
-}
-
-enum EndRenderingOperationsCodes {
-    END_RENDERING_OPERATIONS_FAILED = -0x7fff,
-    END_RENDERING_OPERATIONS_GRAPHICS_QUEUE_SUBMIT_FAIL,
-    END_RENDERING_OPERATIONS_END_CMD_BUFFER_FAIL,
-    END_RENDERING_OPERATIONS_OK = 0,
-    END_RENDERING_OPERATIONS_TRY_RECREATING_SWAPCHAIN,
-};
-
-typedef struct {
-    VkDevice device;
-    VkCommandBuffer cmd_buffer;
-
-    VkSemaphore render_done_semaphore;
-    VkSemaphore present_done_semaphore;
-    VkFence render_done_fence;
-
-    VkQueue graphics_queue;
-    VkQueue present_queue;
-    VkSwapchainKHR swapchain;
-    uint32_t img_index;
-
-} EndRenderingOperationsParam;
-int end_rendering_operations(EndRenderingOperationsParam param) {
-    vkCmdEndRenderPass(param.cmd_buffer);
-    if (vkEndCommandBuffer(param.cmd_buffer) != VK_SUCCESS)
-        return END_RENDERING_OPERATIONS_END_CMD_BUFFER_FAIL;
-
-    vkResetFences(param.device, 1, &param.render_done_fence);
-
-    VkSubmitInfo render_submit_info = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &param.cmd_buffer,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &param.render_done_semaphore,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &param.present_done_semaphore,
-        .pWaitDstStageMask =
-          &(VkPipelineStageFlags){
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }
-    };
-    if (vkQueueSubmit(param.graphics_queue, 1, &render_submit_info,
-                      param.render_done_fence) != VK_SUCCESS)
-        return END_RENDERING_OPERATIONS_GRAPHICS_QUEUE_SUBMIT_FAIL;
-
-    VkPresentInfoKHR present_info = {
-        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .swapchainCount = 1,
-        .pSwapchains = &param.swapchain,
-        .pImageIndices = &param.img_index,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &param.render_done_semaphore,
-    };
-
-    VkResult result =
-      vkQueuePresentKHR(param.present_queue, &present_info);
-
-    if (result == VK_SUBOPTIMAL_KHR ||
-        result == VK_ERROR_OUT_OF_DATE_KHR)
-        return END_RENDERING_OPERATIONS_TRY_RECREATING_SWAPCHAIN;
-    if (result < VK_SUCCESS)
-        return END_RENDERING_OPERATIONS_FAILED;
-    return END_RENDERING_OPERATIONS_OK;
-}
 
 LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
                           LPARAM lparam) {
 
-    struct WinProcData *p_win = NULL;
+    struct WinProcData *pdata = NULL;
 
     if (msg == WM_CREATE) {
         CREATESTRUCT *cr_data = (CREATESTRUCT *)lparam;
-        p_win = (struct WinProcData *)cr_data->lpCreateParams;
-        SetWindowLongPtr(h_wnd, GWLP_USERDATA, (LONG_PTR)p_win);
+        pdata = (struct WinProcData *)cr_data->lpCreateParams;
+        SetWindowLongPtr(h_wnd, GWLP_USERDATA, (LONG_PTR)pdata);
 
-        p_win->win_handle = h_wnd;
+        pdata->win_handle = h_wnd;
 
         RECT client_area;
         GetClientRect(h_wnd, &client_area);
-        p_win->width = client_area.right;
-        p_win->height = client_area.bottom;
+        pdata->width = client_area.right;
+        pdata->height = client_area.bottom;
 
-        p_win->timer_id = SetTimer(h_wnd, 111, 20, NULL);
+        pdata->timer_id = SetTimer(h_wnd, 111, 20, NULL);
 
     } else {
-        p_win = (struct WinProcData *)GetWindowLongPtr(h_wnd,
+        pdata = (struct WinProcData *)GetWindowLongPtr(h_wnd,
                                                        GWLP_USERDATA);
     }
 
-    if (p_win) {
+    if (pdata) {
 
         if (msg == WM_DESTROY) {
-            KillTimer(h_wnd, p_win->timer_id);
+            KillTimer(h_wnd, pdata->timer_id);
             PostQuitMessage(0);
             return 0;
         }
         if (msg == WM_PAINT) {
-            
+
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(h_wnd, &ps);
 
-            //Rectangle(hdc, 10, 10, 300, 300);
+            // Rectangle(hdc, 10, 10, 300, 300);
 
             EndPaint(h_wnd, &ps);
-
         }
         if (msg == WM_TIMER) {
-            if (wparam == p_win->timer_id) {
+            if (wparam == pdata->timer_id) {
                 InvalidateRect(h_wnd, NULL, TRUE);
             }
         }
@@ -232,18 +105,73 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
 
             RECT client_area;
             GetClientRect(h_wnd, &client_area);
-            p_win->width = client_area.right;
-            p_win->height = client_area.bottom;
-            // recreate_swapchain(p_win);
+            pdata->width = client_area.right;
+            pdata->height = client_area.bottom;
+            // recreate_swapchain(pdata);
         }
         if (msg == WM_SETCURSOR) {
             HCURSOR cursor = LoadCursor(NULL, IDC_UPARROW);
             SetCursor(cursor);
         }
+        if (msg == WM_KEYDOWN) {
+            switch (wparam) {
+                if (pdata->qweasd) {
+                case 'Q':
+                        pdata->qweasd->z--;
+                    break;
+                case 'E':
+                        pdata->qweasd->z++;
+                    break;
+                case 'A':
+                    pdata->qweasd->x--;
+                    break;
+                case 'D':
+                    pdata->qweasd->x++;
+                    break;
+                case 'W':
+                    pdata->qweasd->y--;
+                    break;
+                case 'S':
+                    pdata->qweasd->y++;
+                    break;
+
+                }
+                if (pdata->uiojkl) {
+                case 'U':
+                    pdata->uiojkl->z--;
+                    break;
+                case 'O':
+                    pdata->uiojkl->z++;
+                    break;
+                case 'J':
+                    pdata->uiojkl->x--;
+                    break;
+                case 'L':
+                    pdata->uiojkl->x++;
+                    break;
+                case 'I':
+                    pdata->uiojkl->y--;
+                    break;
+                case 'K':
+                    pdata->uiojkl->y++;
+                    break;
+
+                }
+
+            }
+        }
+        if(msg == WM_MOUSEWHEEL) {
+            if(pdata->scroll) {
+                pdata->scroll[0] +=
+                  (float)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+            }
+        }
     }
 
     return DefWindowProc(h_wnd, msg, wparam, lparam);
 }
+
+#include "misc_tools.h"
 
 #pragma warning(push, 3)
 #pragma warning(default : 4703 4700)
@@ -255,9 +183,9 @@ int main(int argc, char *argv[]) {
         MAIN_FAIL_GRAPHICS_PIPELINE,
         MAIN_FAIL_GRAPHICS_PIPELINE_LAYOUT,
 
-        MAIN_FAIL_ALLOC_MAJOR_VERTEX_BUFFER,
+        MAIN_FAIL_MODEL_LOAD,
+
         MAIN_FAIL_GPU_ALLOCR,
-        MAIN_FAIL_MAJOR_VERTEX_BUFFER,
 
         MAIN_FAIL_COMMAND_BUFFERS,
         MAIN_FAIL_COMMAND_POOL,
@@ -269,7 +197,7 @@ int main(int argc, char *argv[]) {
         MAIN_FAIL_DEVICE,
         MAIN_FAIL_SURFACE,
         MAIN_FAIL_INSTANCE,
-        MAIN_FAIL_BUMP_ALLOCATOR,
+        MAIN_FAIL_STACK_ALLOCATOR,
         MAIN_FAIL_WINDOW,
         MAIN_FAIL_OK = 0,
     } failure = MAIN_FAIL_OK;
@@ -309,17 +237,16 @@ int main(int argc, char *argv[]) {
                         NULL, h_instance, &winproc_data))
         return_main_fail(MAIN_FAIL_WINDOW);
 
-    ShowWindow(winproc_data.win_handle, SW_SHOW);
 
     int err_code = 0;
 
     // Create stack allocator
-    StackAllocator bump_allocr =
+    StackAllocator stk_allocr =
       alloc_stack_allocator(SIZE_GB(2), SIZE_MB(100));
-    StackAllocator *ptr_bump_allocr = &bump_allocr;
-    size_t bump_offset = 0;
-    if (bump_allocr.reserved_memory == 0)
-        return_main_fail(MAIN_FAIL_BUMP_ALLOCATOR);
+    StackAllocator *ptr_stk_allocr = &stk_allocr;
+    size_t stk_offset = 0;
+    if (stk_allocr.reserved_memory == 0)
+        return_main_fail(MAIN_FAIL_STACK_ALLOCATOR);
 
     VkInstance vk_instance = VK_NULL_HANDLE;
     // Create instance
@@ -355,7 +282,7 @@ int main(int argc, char *argv[]) {
         };
 
         err_code = create_instance(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           &vk_instance, inst_layers, COUNT_OF(inst_layers) - 1,
           inst_exts, COUNT_OF(inst_exts) - 1);
 
@@ -407,7 +334,7 @@ int main(int argc, char *argv[]) {
         };
 
         err_code = create_device(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks, param,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks, param,
           dev_layers, COUNT_OF(dev_layers) - 1, dev_extensions,
           COUNT_OF(dev_extensions) - 1);
 
@@ -423,7 +350,7 @@ int main(int argc, char *argv[]) {
             .img_format = device.img_format.format,
             .p_render_pass = &render_pass,
         };
-        err_code = create_render_pass(ptr_bump_allocr, bump_offset,
+        err_code = create_render_pass(ptr_stk_allocr, stk_offset,
                                       ptr_alloc_callbacks, param);
         if (err_code < 0)
             return_main_fail(MAIN_FAIL_RENDER_PASS);
@@ -448,7 +375,7 @@ int main(int argc, char *argv[]) {
     };
     {
         err_code = create_swapchain(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateSwapchainParam){
             .create_info = swapchain_creation_infos,
             .device = device.device,
@@ -465,7 +392,7 @@ int main(int argc, char *argv[]) {
     // Create framebuffers on swapchain
     {
         err_code = create_framebuffers(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateFramebuffersParam){
             .device = device.device,
             .compatible_render_pass = render_pass,
@@ -488,7 +415,7 @@ int main(int argc, char *argv[]) {
     VkFence *frame_fences = NULL;
     {
         err_code = create_fences(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateFencesParam){ .device = device.device,
                                .fences_count = max_frames_in_flight,
                                .p_fences = &frame_fences });
@@ -503,7 +430,7 @@ int main(int argc, char *argv[]) {
     VkSemaphore *present_done_semaphores = NULL;
     {
         err_code = create_semaphores(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateSemaphoresParam){ .device = device.device,
                                    .semaphores_count =
                                      2 * max_frames_in_flight,
@@ -520,7 +447,7 @@ int main(int argc, char *argv[]) {
     VkCommandPool rndr_cmd_pool = VK_NULL_HANDLE;
     {
         err_code = create_command_pool(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateCommandPoolParam){ .device = device.device,
                                     .queue_family_inx =
                                       device.graphics_family_inx,
@@ -533,7 +460,7 @@ int main(int argc, char *argv[]) {
     VkCommandBuffer *rndr_cmd_buffers = NULL;
     {
         err_code = create_primary_command_buffers(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreatePrimaryCommandBuffersParam){
             .device = device.device,
             .cmd_pool = rndr_cmd_pool,
@@ -545,37 +472,11 @@ int main(int argc, char *argv[]) {
 
 
     // Info to collect for total memory
-    uint32_t memory_type_flags = -1;
-    size_t total_gpu_memory = 0;
-    // Now create the vertex buffers, that are constant across frames
-    GpuAllocrAllocatedBuffer major_vertex_buffer = { 0 };
-    const float major_vertex_sample_data[][2] = {
-        { -0.5f, -0.5f }, { 0.5f, 0.5f },   { -0.5f, 0.5f },
-        { 0.5f , 0.5f },   { -0.5f, -0.5f }, { 0.5f, -0.5f }
-    };
-    {
-        if (vkCreateBuffer(
-              device.device,
-              &(VkBufferCreateInfo){
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                .size = sizeof(major_vertex_sample_data) },
-              ptr_alloc_callbacks,
-              &major_vertex_buffer.buffer) != VK_SUCCESS)
-            return_main_fail(MAIN_FAIL_MAJOR_VERTEX_BUFFER);
 
-        // Query all required memory properties
-        VkMemoryRequirements buffer_reqs;
-        vkGetBufferMemoryRequirements(
-          device.device, major_vertex_buffer.buffer, &buffer_reqs);
-        major_vertex_buffer.base_align = buffer_reqs.alignment;
-        major_vertex_buffer.total_amt = buffer_reqs.size;
-        memory_type_flags &= buffer_reqs.memoryTypeBits;
-        total_gpu_memory += buffer_reqs.size;
-    }
-
-
+    // For now , required memory type will be hardcoded, later must be
+    // properly evaluated, maybe after textures are implemented
+    uint32_t memory_type_flags = 255;
+    size_t total_gpu_memory = sizeof(VertexInput) * 200;
     // Now create gpu memory allocator
     GPUAllocator gpu_mem_allocr = { 0 };
     {
@@ -594,30 +495,222 @@ int main(int argc, char *argv[]) {
     }
 
 
-    // Now start binding the vertex buffers to gpu memory, and start
-    // copying data
+    // Now create the vertex buffers, that are constant across frames
+    struct Model square_model = { 0 };
     {
-        err_code = gpu_allocr_allocate_buffer(
-          &gpu_mem_allocr, device.device, &major_vertex_buffer);
-        if (err_code < 0)
-            return_main_fail(MAIN_FAIL_ALLOC_MAJOR_VERTEX_BUFFER);
-        if (major_vertex_buffer.mapped_memory == NULL)
-            return_main_fail(MAIN_FAIL_ALLOC_MAJOR_VERTEX_BUFFER);
-        memcpy(major_vertex_buffer.mapped_memory,
-               major_vertex_sample_data,
-               sizeof(major_vertex_sample_data));
+        float r1_3 = sqrtf(1.f/3.f);
 
-        if (vkFlushMappedMemoryRanges(
-              device.device, 1,
-              &(VkMappedMemoryRange){
-                .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                .memory = gpu_mem_allocr.memory_handle,
-                .size = major_vertex_buffer.total_amt,
-                .offset =
-                  ((uint8_t *)major_vertex_buffer.mapped_memory -
-                   (uint8_t *)gpu_mem_allocr.mapped_memory) }) !=
-            VK_SUCCESS)
-            return_main_fail(MAIN_FAIL_ALLOC_MAJOR_VERTEX_BUFFER);
+        const VertexInput major_vertex_sample_data[] = {
+            { { -50.f, -50.f, 50.f },
+              { -r1_3, -r1_3, -r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 0.f, 0.f } },
+            { { 50.f, 50.f, 50.f },
+              { r1_3, r1_3, -r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 1.f, 1.f } },
+            { { -50.f, 50.f, 50.f },
+              { -r1_3, r1_3, -r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 0.f, 1.f } },
+            { { 50.f, -50.f, 50.f },
+              { r1_3, -r1_3, -r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 1.f, 0.f } },
+            { { -50.f, -50.f, 150.f },
+              { -r1_3, -r1_3, r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 0.f, 0.f } },
+            { { 50.f, 50.f, 150.f },
+              { r1_3, r1_3, r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 1.f, 1.f } },
+            { { -50.f, 50.f, 150.f },
+              { -r1_3, r1_3, r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 0.f, 1.f } },
+            { { 50.f, -50.f, 150.f },
+              { r1_3, -r1_3, r1_3 },
+              { 1.f, 1.f, 1.f },
+              { 1.f, 0.f } },
+        };
+
+        const uint16_t major_index_sample_data[] = {
+            0, 1, 2, 1, 0, 3,
+            4,6,5,5,7,4,
+            1,3,7,7,5,1,
+            4,0,2,2,6,4,
+            2,5,6,2,1,5,
+            0,4,7,7,3,0,
+        };
+
+        //generate a cylinder ? 
+        // generate two cirles, / polygons, with center also as vertices
+        // with radially outwards normals
+        // add +-z to those
+        // renormalize the normals
+        // 
+        // for indices:
+        // one triangle for each end faces' center and two edges
+        // two triangles for each side
+        //
+
+        const int divs = 3;
+        const int n_verts = divs * 4 + 2;
+        const int n_indxs = 3 * 8 * divs;
+        const int radius = 200;
+        const int depth = 300;
+        const int bevel = 10;
+        const Vec3 front_col = {
+            .r = 1.0f,
+            .g = 1.0f,
+            .b = 0.0f,
+        };
+        const Vec3 back_col = {
+            .r = 0.0f,
+            .g = 0.0f,
+            .b = 1.0f,
+        };
+
+        size_t v_size = n_verts * sizeof(VertexInput);
+        size_t i_size = n_indxs * sizeof(uint16_t);
+
+        VertexInput *verts =
+          stack_allocate(&stk_allocr, &stk_offset, v_size, 4);
+        uint16_t *indxs =
+          stack_allocate(&stk_allocr, &stk_offset, i_size, 4);
+
+        int inx_count = 0;
+        for (int i = 0; i < divs; ++i) {
+
+            float nx = cosf(i * M_PI * 2.f/divs);
+            float ny = sinf(i * M_PI * 2.f/divs);
+            float fx = radius * nx;
+            float fy = radius * ny;
+            float bx = (radius -bevel)* nx;
+            float by = (radius -bevel)* ny;
+            {
+
+                // For front
+                verts[i + 0 * divs].pos = (Vec3){
+                    .x = bx, .y = by, .z = -(depth / 2 + bevel)
+                };
+                verts[i + 0 * divs].normal =
+                  (Vec3){ .x = 0.f, .y = 0.f, .z = -1.f };
+                verts[i + 0 * divs].color = front_col;
+
+                // For bevel to front
+
+                verts[i + 1 * divs].pos =
+                  (Vec3){ .x = fx, .y = fy, .z = -(depth / 2) };
+                verts[i + 1 * divs].normal =
+                  (Vec3){ .x = nx, .y = ny, .z = 0.f };
+                verts[i + 1 * divs].color = front_col;
+
+
+                // For bevel to back
+
+                verts[i + 2 * divs].pos =
+                  (Vec3){ .x = fx, .y = fy, .z = (depth / 2) };
+                verts[i + 2 * divs].normal =
+                  (Vec3){ .x = nx, .y = ny, .z = 0.f };
+                verts[i + 2 * divs].color = back_col;
+
+
+                // For back
+
+                verts[i + 3 * divs].pos = (Vec3){
+                    .x = bx, .y = by, .z = (depth / 2 + bevel)
+                };
+                verts[i + 3 * divs].normal =
+                  (Vec3){ .x = 0.f, .y = 0.f, .z = 1.f };
+                verts[i + 3 * divs].color = back_col;
+
+            }
+
+
+            //For front face
+            indxs[inx_count++] = i;
+            indxs[inx_count++] = (i + 1) % divs;
+            indxs[inx_count++] = n_verts - 2;
+            
+            //For front bevel
+            indxs[inx_count++] = i ;
+            indxs[inx_count++] = i + divs ;
+            indxs[inx_count++] = (i + 1) % divs + divs ;
+            
+            indxs[inx_count++] = (i + 1) % divs + divs ;
+            indxs[inx_count++] = (i + 1) % divs ;
+            indxs[inx_count++] = i ;
+
+
+            //For side
+            indxs[inx_count++] = i  + divs;
+            indxs[inx_count++] = i + divs*2;
+            indxs[inx_count++] = (i + 1) % divs + divs*2;
+
+            indxs[inx_count++] = (i + 1) % divs + divs*2;
+            indxs[inx_count++] = (i + 1) % divs + divs;
+            indxs[inx_count++] = i +divs;
+
+            //For back bevel
+            indxs[inx_count++] = i + divs * 2;
+            indxs[inx_count++] = i + divs * 3;
+            indxs[inx_count++] = (i + 1) % divs + divs * 3;
+            
+            indxs[inx_count++] = (i + 1) % divs + divs * 3;
+            indxs[inx_count++] = (i + 1) % divs + divs * 2;
+            indxs[inx_count++] = i + divs * 2;
+
+            //For back face
+            indxs[inx_count++] = divs*3 + (i + 1) % divs;
+            indxs[inx_count++] = divs*3 + i;
+            indxs[inx_count++] = n_verts - 1;
+
+
+        }
+
+        verts[n_verts - 2].normal = (Vec3){ 0.f, 0.f, -1.f };
+        verts[n_verts - 1].normal = (Vec3){ 0.f, 0.f, 1.f };
+        verts[n_verts - 2].pos = (Vec3){ 0.f, 0.f, -(bevel+depth/2) };
+        verts[n_verts - 1].pos = (Vec3){ 0.f, 0.f,  (bevel+depth/2) };
+        verts[n_verts - 2].color = front_col;
+        verts[n_verts - 1].color = back_col;
+        
+
+        //Eh, make this cylinder a sphere 
+
+        /*for(int i = 0; i < n_verts; ++i) {
+            verts[i].pos =
+              vec3_scale_fl(vec3_normalize(verts[i].pos), radius);
+        
+            verts[i].normal = vec3_normalize(verts[i].pos);
+        }*/
+
+        if (create_model(
+              ptr_alloc_callbacks,
+              (CreateModelParam){
+                           .device = device.device,
+                           .p_allocr = &gpu_mem_allocr,
+                           .index_count = n_indxs,
+                           .indices_list = indxs,
+                           .vertex_count = n_verts,
+                           .vertices_list = verts,
+                         },
+                         &square_model) < 0)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        //if (create_model(
+        //      ptr_alloc_callbacks,
+        //      (CreateModelParam){
+        //        .device = device.device,
+        //        .p_allocr = &gpu_mem_allocr,
+        //        .index_count = COUNT_OF(major_index_sample_data),
+        //        .indices_list = major_index_sample_data,
+        //        .vertex_count = COUNT_OF(major_vertex_sample_data),
+        //        .vertices_list = major_vertex_sample_data },
+        //      &square_model) < 0)
+        //    return_main_fail(MAIN_FAIL_MODEL_LOAD);
     }
 
 
@@ -625,16 +718,11 @@ int main(int argc, char *argv[]) {
     // constant of a float for now
     VkPipelineLayout graphics_pipeline_layout = VK_NULL_HANDLE;
     {
-        VkPushConstantRange push_range = {
-            .offset = 0,
-            .size = sizeof(float),
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        };
 
         VkPipelineLayoutCreateInfo create_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &push_range,
+            .pushConstantRangeCount = COUNT_OF(push_ranges),
+            .pPushConstantRanges = push_ranges,
 
 
         };
@@ -651,165 +739,203 @@ int main(int argc, char *argv[]) {
         GraphicsPipelineCreationInfos create_infos =
           default_graphics_pipeline_creation_infos();
 
-        VkVertexInputAttributeDescription attr_desc = {
-            .binding = 0,
-            .offset = 0,
-            .location = 0,
-            .format = VK_FORMAT_R32G32_SFLOAT,
-        };
-        VkVertexInputBindingDescription bind_desc = {
-            .binding = 0,
-            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-            .stride = sizeof(major_vertex_sample_data[0]),
-        };
         create_infos.vertex_input_state
-          .vertexAttributeDescriptionCount = 1;
-        create_infos.vertex_input_state.pVertexAttributeDescriptions =
-          &attr_desc;
+          .vertexAttributeDescriptionCount = COUNT_OF(attrib_descs),
+          create_infos.vertex_input_state
+            .pVertexAttributeDescriptions = attrib_descs;
         create_infos.vertex_input_state
-          .vertexBindingDescriptionCount = 1;
+          .vertexBindingDescriptionCount = COUNT_OF(binding_descs);
         create_infos.vertex_input_state.pVertexBindingDescriptions =
-          &bind_desc;
+          binding_descs;
+        create_infos.rasterization_state.polygonMode =
+          VK_POLYGON_MODE_FILL;
+        /*
+          VK_POLYGON_MODE_LINE;
+        */
 
-        // create_infos.vertex_input_state
-        //   .vertexAttributeDescriptionCount =
-        //   create_infos.vertex_input_state
-        //     .vertexBindingDescriptionCount = 0;
 
         err_code = create_graphics_pipeline(
-          ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
           (CreateGraphicsPipelineParam){
             .create_infos = create_infos,
             .compatible_render_pass = render_pass,
             .device = device.device,
             .pipe_layout = graphics_pipeline_layout,
             .subpass_index = 0,
-            .vert_shader_file = "shaders/out/demo.vert.spv",
-            .frag_shader_file = "shaders/out/demo.frag.spv",
+            .vert_shader_file = "shaders/out/demo.vert.hlsl.spv",
+            .frag_shader_file = "shaders/out/demo.frag.hlsl.spv",
             .p_pipeline = &graphics_pipeline });
         if (err_code < 0)
             return_main_fail(MAIN_FAIL_GRAPHICS_PIPELINE);
     }
 
-    // Now place for miscellaneous data
-    int square_offset = 0;
-    int max_offsets = 256;
+    ShowWindow(winproc_data.win_handle, SW_SHOW);
+
+    // Miscellaneous data + data to transform models
+    Vec3 sq_rotate = { 0 };
+    Vec3 sq_translate = { 0 };
+    Vec3 sq_scale = { 1.f,1.f,1.f };
+    float sq_scale_pow = 0;
+
+    winproc_data.qweasd = &sq_translate;
+    winproc_data.uiojkl = &sq_rotate;
+    winproc_data.scroll = &sq_scale_pow;
+
+    Vec3 world_min = { -300,-300,-900};
+    Vec3 world_max = { 300, 300, 900 };
+
+    Vec3 light = { 0.f, 0.f, 1.f };
 
     MSG msg = { 0 };
     while (msg.message != WM_QUIT) {
-        square_offset = (square_offset + 1) % max_offsets;
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) > 0) {
+        // Setup miscelannous data if needed
+        {
+            sq_scale.x = sq_scale.y = sq_scale.z =
+              powf(1.1f, sq_scale_pow);
+            world_min.x = -winproc_data.width / 2.f;
+            world_min.y = -winproc_data.height / 2.f;
+
+            world_max.x = winproc_data.width / 2.f;
+            world_max.y = winproc_data.height / 2.f;
+        }
+
+
+        while ((PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) > 0)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+        {
 
-        uint32_t img_inx = 0;
-        BeginRenderingOperationsParam begin_param = {
-            .device = device.device,
-            .render_pass = render_pass,
-            .framebuffer_render_extent = swapchain_extent,
-            .swapchain = curr_swapchain_data.swapchain,
-            .framebuffers = curr_swapchain_data.framebuffers,
-            .cmd_buffer = rndr_cmd_buffers[curr_frame_in_flight],
-            .render_done_fence = frame_fences[curr_frame_in_flight],
-            .present_done_semaphore =
-              present_done_semaphores[curr_frame_in_flight],
-            .p_img_inx = &img_inx,
+            uint32_t img_inx = 0;
+            {
+                BeginRenderingOperationsParam begin_param = {
+                    .device = device.device,
+                    .render_pass = render_pass,
+                    .framebuffer_render_extent = swapchain_extent,
+                    .swapchain = curr_swapchain_data.swapchain,
+                    .framebuffers = curr_swapchain_data.framebuffers,
+                    .cmd_buffer =
+                      rndr_cmd_buffers[curr_frame_in_flight],
+                    .render_done_fence =
+                      frame_fences[curr_frame_in_flight],
+                    .present_done_semaphore =
+                      present_done_semaphores[curr_frame_in_flight],
+                    .p_img_inx = &img_inx,
 
-        };
-        int res = begin_rendering_operations(begin_param);
+                };
+                int res = begin_rendering_operations(begin_param);
+                RecreateSwapchainParam recreation_param = {
+                    .device = device.device,
+                    .create_info = swapchain_creation_infos,
+                    .framebuffer_render_pass = render_pass,
+                    .new_win_height = winproc_data.height,
+                    .new_win_width = winproc_data.width,
+                    .p_img_swap_extent = &swapchain_extent,
+                    .p_old_swapchain_data = &old_swapchain_data,
+                    .p_new_swapchain_data = &curr_swapchain_data
+                };
+                if (res < 0)
+                    continue;
+                if (
+                  res ==
+                  BEGIN_RENDERING_OPERATIONS_TRY_RECREATE_SWAPCHAIN) {
+                    recreate_swapchain(ptr_stk_allocr, stk_offset,
+                                       ptr_alloc_callbacks,
+                                       recreation_param);
 
-        if (res < 0)
-            continue;
-        if (res ==
-            BEGIN_RENDERING_OPERATIONS_TRY_RECREATE_SWAPCHAIN) {
-            recreate_swapchain(
-              ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
-              (RecreateSwapchainParam){
-                .device = device.device,
-                .create_info = swapchain_creation_infos,
-                .framebuffer_render_pass = render_pass,
-                .new_win_height = winproc_data.height,
-                .new_win_width = winproc_data.width,
-                .p_img_swap_extent = &swapchain_extent,
-                .p_old_swapchain_data = &old_swapchain_data,
-                .p_new_swapchain_data = &curr_swapchain_data });
+                    continue;
+                }
 
-            continue;
+
+                // Here now set viewports, bind pipeline , set
+                // constants, bind buffers and draw
+                vkCmdSetViewport(
+                  rndr_cmd_buffers[curr_frame_in_flight], 0, 1,
+                  &(VkViewport){ .x = 0.f,
+                                 .y = 0.f,
+                                 .minDepth = 0.f,
+                                 .maxDepth = 1.f,
+                                 .width = swapchain_extent.width,
+                                 .height = swapchain_extent.height });
+                vkCmdSetScissor(
+                  rndr_cmd_buffers[curr_frame_in_flight], 0, 1,
+                  &(VkRect2D){ .offset = { .x = 0, .y = 0 },
+                               .extent = swapchain_extent });
+
+                vkCmdBindPipeline(
+                  rndr_cmd_buffers[curr_frame_in_flight],
+                  VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
+            }
+
+
+            struct PushConst pushes = { 0 };
+            pushes.view_proj = (Mat4)MAT4_IDENTITIY;
+
+            Mat4 translate = mat4_translate_3(
+              sq_translate.x, sq_translate.y, sq_translate.z);
+            Mat4 rotate = mat4_rotation_XYZ(vec3_to_radians(sq_rotate));
+            Mat4 scale =
+              mat4_scale_3(sq_scale.x, sq_scale.y, sq_scale.z);
+
+            pushes.model_mat =
+              mat4_multiply_mat_3(&translate, &rotate, &scale);
+            pushes.view_proj =
+              mat4_orthographic(world_min, world_max);
+            pushes.model_mat.cols[3] =
+              (Vec4){ light.x, light.y, light.z,1.0f };
+
+            vkCmdPushConstants(rndr_cmd_buffers[curr_frame_in_flight],
+                               graphics_pipeline_layout,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               sizeof(struct PushConst), &pushes);
+
+            submit_model_draw(&square_model,
+                              rndr_cmd_buffers[curr_frame_in_flight]);
+
+            {
+                EndRenderingOperationsParam end_param = {
+                    .device = device.device,
+                    .cmd_buffer =
+                      rndr_cmd_buffers[curr_frame_in_flight],
+                    .graphics_queue = device.graphics_queue,
+                    .present_queue = device.present_queue,
+                    .swapchain = curr_swapchain_data.swapchain,
+                    .img_index = img_inx,
+                    .render_done_fence =
+                      frame_fences[curr_frame_in_flight],
+                    .render_done_semaphore =
+                      render_finished_semaphores
+                        [curr_frame_in_flight],
+                    .present_done_semaphore =
+                      present_done_semaphores[curr_frame_in_flight]
+                };
+                RecreateSwapchainParam recreation_param = {
+                    .device = device.device,
+                    .create_info = swapchain_creation_infos,
+                    .framebuffer_render_pass = render_pass,
+                    .new_win_height = winproc_data.height,
+                    .new_win_width = winproc_data.width,
+                    .p_img_swap_extent = &swapchain_extent,
+                    .p_old_swapchain_data = &old_swapchain_data,
+                    .p_new_swapchain_data = &curr_swapchain_data
+                };
+                VkResult res = end_rendering_operations(end_param);
+                if (
+                  res ==
+                  END_RENDERING_OPERATIONS_TRY_RECREATING_SWAPCHAIN) {
+                    recreate_swapchain(ptr_stk_allocr, stk_offset,
+                                       ptr_alloc_callbacks,
+                                       recreation_param);
+
+                    continue;
+                }
+
+                if (old_swapchain_data.img_count)
+                    old_swapchain_data.img_count--;
+                curr_frame_in_flight =
+                  (curr_frame_in_flight + 1) % max_frames_in_flight;
+            }
         }
-
-
-        // Here now set viewports, bind pipeline , set constants, bind
-        // buffers and draw
-        vkCmdSetViewport(
-          rndr_cmd_buffers[curr_frame_in_flight], 0, 1,
-          &(VkViewport){ .x = 0.f,
-                         .y = 0.f,
-                         .minDepth = 0.f,
-                         .maxDepth = 1.f,
-                         .width = swapchain_extent.width,
-                         .height = swapchain_extent.height });
-        vkCmdSetScissor(rndr_cmd_buffers[curr_frame_in_flight], 0, 1,
-                        &(VkRect2D){ .offset = { .x = 0, .y = 0 },
-                                     .extent = swapchain_extent });
-
-        vkCmdBindPipeline(rndr_cmd_buffers[curr_frame_in_flight],
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          graphics_pipeline);
-
-        VkDeviceSize offsets = 0;
-
-        vkCmdBindVertexBuffers(rndr_cmd_buffers[curr_frame_in_flight],
-                               0, 1, &major_vertex_buffer.buffer,
-                               &offsets);
-        //                       &(VkDeviceSize){ 0 });
-
-
-        vkCmdPushConstants(
-          rndr_cmd_buffers[curr_frame_in_flight],
-          graphics_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-          sizeof(float),
-          &(float){ (float)square_offset / (max_offsets >> 1) -
-                    1.f });
-        ;
-        vkCmdDraw(rndr_cmd_buffers[curr_frame_in_flight], 6, 1, 0, 0);
-
-
-        EndRenderingOperationsParam end_param = {
-            .device = device.device,
-            .cmd_buffer = rndr_cmd_buffers[curr_frame_in_flight],
-            .graphics_queue = device.graphics_queue,
-            .present_queue = device.present_queue,
-            .swapchain = curr_swapchain_data.swapchain,
-            .img_index = img_inx,
-            .render_done_fence = frame_fences[curr_frame_in_flight],
-            .render_done_semaphore =
-              render_finished_semaphores[curr_frame_in_flight],
-            .present_done_semaphore =
-              present_done_semaphores[curr_frame_in_flight]
-        };
-        res = end_rendering_operations(end_param);
-        if (res ==
-            END_RENDERING_OPERATIONS_TRY_RECREATING_SWAPCHAIN) {
-            recreate_swapchain(
-              ptr_bump_allocr, bump_offset, ptr_alloc_callbacks,
-              (RecreateSwapchainParam){
-                .device = device.device,
-                .create_info = swapchain_creation_infos,
-                .framebuffer_render_pass = render_pass,
-                .new_win_height = winproc_data.height,
-                .new_win_width = winproc_data.width,
-                .p_img_swap_extent = &swapchain_extent,
-                .p_old_swapchain_data = &old_swapchain_data,
-                .p_new_swapchain_data = &curr_swapchain_data });
-
-            continue;
-        }
-
-        if (old_swapchain_data.img_count)
-            old_swapchain_data.img_count--;
-        curr_frame_in_flight =
-          (curr_frame_in_flight + 1) % max_frames_in_flight;
     }
 
 
@@ -842,7 +968,9 @@ cleanup_phase:
 
 
         err_code = 0;
-    case MAIN_FAIL_ALLOC_MAJOR_VERTEX_BUFFER:
+    case MAIN_FAIL_MODEL_LOAD:
+        clear_model(ptr_alloc_callbacks, device.device,
+                    &square_model);
 
         err_code = 0;
     case MAIN_FAIL_GPU_ALLOCR:
@@ -851,13 +979,6 @@ cleanup_phase:
           (FreeDeviceMemoryParam){ .device = device.device,
                                    .p_gpu_allocr = &gpu_mem_allocr },
           err_code);
-
-
-        vkDestroyBuffer(device.device, major_vertex_buffer.buffer,
-                        ptr_alloc_callbacks);
-        err_code = 0;
-    case MAIN_FAIL_MAJOR_VERTEX_BUFFER:
-        major_vertex_buffer = (GpuAllocrAllocatedBuffer){ 0 };
 
         err_code = 0;
     case MAIN_FAIL_COMMAND_BUFFERS:
@@ -901,7 +1022,9 @@ cleanup_phase:
           ptr_alloc_callbacks,
           (ClearFramebuffersParam){
             .device = device.device,
-            .framebuffer_count = old_swapchain_data.img_count,
+            .framebuffer_count =
+              curr_swapchain_data
+                .img_count, // Use current image count for this
             .p_framebuffers = &old_swapchain_data.framebuffers },
           0);
         err_code = 0;
@@ -915,6 +1038,8 @@ cleanup_phase:
           err_code);
 
 
+        // Use current image count
+        old_swapchain_data.img_count = curr_swapchain_data.img_count;
         clear_swapchain(ptr_alloc_callbacks,
                         (ClearSwapchainParam){
                           .device = device.device,
@@ -956,9 +1081,9 @@ cleanup_phase:
         clear_instance(ptr_alloc_callbacks, &vk_instance, err_code);
 
 
-        dealloc_stack_allocator(&bump_allocr);
+        dealloc_stack_allocator(&stk_allocr);
         err_code = 0;
-    case MAIN_FAIL_BUMP_ALLOCATOR:
+    case MAIN_FAIL_STACK_ALLOCATOR:
 
     case MAIN_FAIL_WINDOW:
 

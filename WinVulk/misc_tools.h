@@ -4,7 +4,7 @@
 #include "vectors.h"
 
 
-// Currently used push constants
+// Currently used push constants for current shader
 struct PushConst {
     Mat4 view_proj;
     Mat4 model_mat;
@@ -18,7 +18,7 @@ const static VkPushConstantRange push_ranges[] = {
     },
 };
 
-// Currently used shader input vertex
+// Currently used shader input vertex for current shader
 struct VertexInput {
     Vec3 pos;
     Vec3 normal;
@@ -59,6 +59,151 @@ const static VkVertexInputAttributeDescription attrib_descs[] = {
       .format = VK_FORMAT_R32G32_SFLOAT,
     }
 };
+
+
+//For uniforms and descriptors used in shaders currently
+
+//Create descriptor layouts 
+
+void test1() {
+
+    VkDescriptorSetLayoutBinding binds[2];
+
+    //I think this is the (set, binding)'s binding in shader
+    binds[0].binding = 0;
+    binds[1].binding = 1;
+
+    //This specifies the array elements count in the shader as a array if needed
+    //Else just set to 1 , maybe...
+    binds[0].descriptorCount = 3;
+    binds[1].descriptorCount = 3;
+
+    //Obvs, this specifies what type of variable it will be, uniform, sampler, buffer, ... i think
+    binds[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    binds[1].descriptorType =
+      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+
+    //This for sure specifies what shader to use in
+    binds[0].stageFlags = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+    binds[1].stageFlags = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    
+
+    //This is used to create (a descriptor set )->layout for pipeline layout , maybe
+    VkDescriptorSetLayoutCreateInfo info;
+    info.bindingCount = 2;
+    info.pBindings = binds;
+
+    VkDescriptorSetLayout des_layouts[2];
+
+    //So, it means , i think, multiple descriptors are used , like above (binds)
+    //then a descriptor set layout is created per set as above
+    //Now when creating pipeline, for filling each set (set, binding), we specify
+    //an array of descriptor set layout
+    VkPipelineLayoutCreateInfo pipe_info;
+    pipe_info.setLayoutCount = 2;
+    pipe_info.pSetLayouts = des_layouts;
+
+
+    //Now let's proceed to creating descriptors, and pools
+    //I'll comment what roughly I will have to do 
+
+    
+
+    //Create Descriptor pool
+
+    VkDescriptorPoolSize pool_sizes[2];
+
+    //This says, acc to first pool_size, 2 uniform buffer descriptors can be created from this pool
+    pool_sizes[0].descriptorCount = 2;
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+    //This now says, 2 combined image samplers can be created
+    pool_sizes[1].descriptorCount = 2;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+
+
+    VkDescriptorPoolCreateInfo des_pool_info;
+    des_pool_info.poolSizeCount = 2;
+    des_pool_info.pPoolSizes = pool_sizes;
+
+    //This says sum total of descriptor set count 4, afaik, that can be allocated from this pool
+    des_pool_info.maxSets = 4;
+    
+
+    VkDescriptorPool des_pool;
+    
+
+
+    //Allocate descriptors, not sets, singular units of descriptors, 
+    //I think this will use the layouts of sets, maybe, but that will mean 
+    //That descriptors are created in sets anyways
+    //Wait a minute,.... maybe all descriptors are created in sets, fuck
+
+    VkDescriptorSetAllocateInfo alloc_info;
+    //Now this allocates the sets as per given set layouts from the pool
+    alloc_info.descriptorPool = NULL;
+    alloc_info.descriptorSetCount = 2;
+    alloc_info.pSetLayouts = NULL;
+    
+    VkDescriptorSet sets[3];
+    vkAllocateDescriptorSets(NULL, &alloc_info, sets);
+
+    //Write/update to the descriptors with buffer/images/samplers
+    VkCopyDescriptorSet copy;
+    //Other stuff are trivial, these mean something if descriptor is an array type
+    copy.srcArrayElement = 0;   //
+    copy.dstArrayElement = 1;
+    copy.descriptorCount = 4;   // Total number of array descriptions to copy, copies from start of srcArrayElement, copied to from start of dst Array Element
+
+    VkWriteDescriptorSet write;
+    //Write is also the same as copy, only here there is no src
+    //array also work similarly
+    //For src, we have either of pImageInfo, for images, pBufferInfo for buffer, or pTexelBufferView
+    //for ..., only one of these three is selected as per descriptorType
+
+
+
+
+    //After all this , write to buffer memory/image memory and bind to pipeline
+    //when recording/before command buffers
+
+    vkCmdBindDescriptorSets(NULL, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            NULL, 1, 4, sets, 0, NULL);
+    //Trivial, binds descriptor sets in sets, from 0 to 3, (4 sets)
+    //to descriptor slots 1 to 4 (4 set slots) for compute pipeline
+    //The last two members are special, they are used if dynamic arrays are expected in any of slots
+    //i.e, array size in shader is unkonwn at shader compile time
+    //Probably not hard at all, if needed be
+
+}
+
+// Now let's make a game plan, like how many and how types of descriptor sets
+// to create 
+// 
+// 0: v shader : 
+//      0,0 : float4x4[] : each one successively being V and P matrices
+//    f shader : push constant, make it simple for now
+//      float4 : light pos
+//    v shader : push constant, 
+//      float4x4 : model matrix
+// 
+// 1: v shader : 
+//      0,0 : float4x4[3] : each one successively being M V and P matrices
+//    f shader :
+//      0,1 : light pos
+// 
+// 2: v shader
+//      0,0 : float4x4 : model matrix
+//      0,1 : float4   : model color, override the vertex color here
+//      1,0 : float4x4[2] : V and P matrix
+//      1,1 : float3 : light position
+//      
+//
+
+
+
+
+
 
 // Based on currently used vertices and indices
 struct Model {

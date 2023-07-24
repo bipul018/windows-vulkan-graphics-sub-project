@@ -688,7 +688,7 @@ int main(int argc, char *argv[]) {
         }*/
 
         LoadSphereOutput outs =
-          load_sphere_uv(ptr_stk_allocr, stk_offset, 7, 200);
+          load_sphere_uv(ptr_stk_allocr, stk_offset, 2, 200);
 
         
         n_verts = outs.vertex_count;

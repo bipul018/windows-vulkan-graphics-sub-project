@@ -3,14 +3,13 @@
 #include "render-stuff.h"
 #include "vectors.h"
 
-#define member_size(struct_name, member) \
-    sizeof( ( (struct_name*)0)->member)
+#define member_size(struct_name, member)                             \
+    sizeof(((struct_name *)0)->member)
 
 // Currently used shader input vertex for current shader
 struct VertexInput {
     Vec3 pos;
     Vec3 normal;
-    Vec3 color;
     Vec2 uv;
 };
 typedef struct VertexInput VertexInput;
@@ -32,12 +31,6 @@ const static VkVertexInputAttributeDescription attrib_descs[] = {
       .binding = 0,
       .location = 1,
       .offset = offsetof(VertexInput, normal),
-      .format = VK_FORMAT_R32G32B32_SFLOAT,
-    },
-    {
-      .binding = 0,
-      .location = 2,
-      .offset = offsetof(VertexInput, color),
       .format = VK_FORMAT_R32G32B32_SFLOAT,
     },
     {
@@ -196,6 +189,7 @@ void test1() {
 //      1,0 : float4x4[2] : V and P matrix
 //      1,1 : float3 : light position
 //
+
 // 4: final okay
 //    v shader :
 //      input : vec3 pos, vec3 normal, vec2 tex coord
@@ -204,6 +198,7 @@ void test1() {
 //    f shader :
 //      push constants : vec3 model color
 //      desc sets : (maybe later dynamic), vec3 light sources
+//      + need to add depth buffer, so depth output too
 //
 
 
@@ -212,256 +207,29 @@ void test1() {
 // Create descriptor layouts
 enum CreateDescriptorLayoutsCodes {
     CREATE_DESCRIPTOR_LAYOUTS_ERR = -0x7fff,
-    CREATE_DESCRIPTOR_LAYOUTS_MEM_ALLOC_ERR,
+    CREATE_DESCRIPTOR_LAYOUTS_MATRICES_LAYOUT_FAIL,
+    CREATE_DESCRIPTOR_LAYOUTS_LIGHTS_LAYOUT_FAIL,
     CREATE_DESCRIPTOR_LAYOUTS_OK = 0,
 };
 
 typedef struct {
     VkDevice device;
+    VkDescriptorSetLayout *p_matrix_set_layout;
+    VkDescriptorSetLayout *p_lights_set_layout;
 
-    VkDescriptorSetLayout **p_layouts;
-    size_t *p_layout_count;
 } CreateDescriptorLayoutsParam;
 
-typedef int (*PFNCreateDesciptorLayouts)(
-  VkAllocationCallbacks *, CreateDescriptorLayoutsParam);
-
-typedef struct {
-    VkDevice device;
-
-
-    VkDescriptorSetLayout **p_layouts;
-    size_t *p_layout_count;
-} ClearDescriptorLayoutsParam;
-typedef void (*PFNClearDescriptorLayouts)(VkAllocationCallbacks *,
-                                          ClearDescriptorLayoutsParam,
-                                          int err_codes);
-
-void clear_descriptor_layouts(VkAllocationCallbacks *alloc_callbacks,
-                              ClearDescriptorLayoutsParam param,
-                              int err_code) {
-    switch (err_code) {
-    case CREATE_DESCRIPTOR_LAYOUTS_OK:
-
-    case CREATE_DESCRIPTOR_LAYOUTS_ERR:
-        for (size_t i = 0; i < *param.p_layout_count; ++i)
-            if (param.p_layouts[0][i])
-                vkDestroyDescriptorSetLayout(param.device,
-                                             param.p_layouts[0][i],
-                                             alloc_callbacks);
-
-        free(*param.p_layouts);
-    case CREATE_DESCRIPTOR_LAYOUTS_MEM_ALLOC_ERR:
-        *param.p_layouts = NULL;
-        *param.p_layout_count = 0;
-    }
-}
-enum CreateDescriptorPoolCodes {
-    CREATE_DESCRIPTOR_POOL_FAIL = -0x7fff,
-
-    CREATE_DESCRIPTOR_POOL_OK = 0
-};
-typedef struct {
-    VkDevice device;
-    size_t no_sets;
-
-    VkDescriptorPool *p_pool;
-} CreateDescriptorPoolParam;
-
-typedef int (*PFNCreateDescriptorPool)(VkAllocationCallbacks *,
-                                       CreateDescriptorPoolParam);
-
-typedef struct {
-    VkDevice device;
-
-    VkDescriptorPool *p_pool;
-} ClearDescriptorPoolParam;
-void clear_descriptor_pool(VkAllocationCallbacks *alloc_callbacks,
-                           ClearDescriptorPoolParam param,
-                           int err_code) {
-    switch (err_code) {
-    case CREATE_DESCRIPTOR_POOL_OK:
-        vkDestroyDescriptorPool(param.device, *param.p_pool,
-                                alloc_callbacks);
-    case CREATE_DESCRIPTOR_POOL_FAIL:
-        *param.p_pool = VK_NULL_HANDLE;
-    }
-}
-
-typedef struct {
-    VkDevice device;
-
-    VkDescriptorPool pool;
-    VkDescriptorSetLayout layout;
-    size_t set_count;
-
-    // Expects all bindings to be continuous from 0
-    size_t binding_count;
-
-    // Each buffer is for a single set
-    const GpuAllocrAllocatedBuffer *buffers;
-
-    // These are per binding offsets and ranges
-    const size_t *offsets;
-    const size_t *ranges;
-
-    // Writes the types of descriptors in the set
-    // Each types is a types per binding
-    const VkDescriptorType *types;
-
-
-    // Should be preallocated
-    VkDescriptorSet *p_des_sets;
-} AllocateAndBindBufferDescriptorsParam;
-
-enum AllocateAndBindBufferDescriptorsCodes {
-    ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_FAIL = -0x7fff,
-    ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_ALLOC_DESCRIPTORS_FAIL,
-    ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_INTERNAL_ALLOC_FAIL,
-    ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_OK = 0,
+struct DescriptorMats {
+    Mat4 view;
+    Mat4 proj;
 };
 
-// Allocates a bunch of sets for singular set layout
-int allocate_and_bind_buffer_descriptors(
-  StackAllocator *p_stk_allocr, size_t stk_offset,
-  VkAllocationCallbacks *alloc_callbacks,
-  AllocateAndBindBufferDescriptorsParam param) {
-
-    VkDescriptorSetLayout *dummy =
-      stack_allocate(p_stk_allocr, &stk_offset,
-                     sizeof(VkDescriptorSetLayout) * param.set_count,
-                     sizeof(VkDescriptorSetLayout));
-
-    if (dummy == NULL)
-        return ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_INTERNAL_ALLOC_FAIL;
-
-    for (size_t i = 0; i < param.set_count; ++i)
-        dummy[i] = param.layout;
-
-    VkDescriptorSetAllocateInfo alloc_info = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = param.pool,
-        .pSetLayouts = dummy,
-        .descriptorSetCount = param.set_count,
-    };
-
-    VkResult res = vkAllocateDescriptorSets(param.device, &alloc_info,
-                                            param.p_des_sets);
-
-    if (res != VK_SUCCESS)
-        return ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_ALLOC_DESCRIPTORS_FAIL;
-
-    VkWriteDescriptorSet *writes =
-      stack_allocate(p_stk_allocr, &stk_offset,
-                     sizeof(VkWriteDescriptorSet) * param.set_count *
-                       param.binding_count,
-                     sizeof(uintptr_t));
-    VkDescriptorBufferInfo *buff_infos =
-      stack_allocate(p_stk_allocr, &stk_offset,
-                     sizeof(VkDescriptorBufferInfo) *
-                       param.set_count * param.binding_count,
-                     sizeof(uintptr_t));
-    if (!writes || !buff_infos)
-        return ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_FAIL;
-
-
-    VkWriteDescriptorSet *ptr = writes;
-    VkDescriptorBufferInfo *buff = buff_infos;
-    for (int i = 0; i < param.binding_count; ++i) {
-        for (int j = 0; j < param.set_count; ++j) {
-            *ptr = (VkWriteDescriptorSet){
-                .dstSet = param.p_des_sets[j],
-                .descriptorCount = 1,
-                .dstBinding = i,
-                .descriptorType = param.types[i],
-                .pBufferInfo = buff_infos,
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            };
-            *buff = (VkDescriptorBufferInfo){
-                .buffer = param.buffers[j].buffer,
-                .offset = param.offsets[i],
-                .range = param.ranges[i],
-            };
-            ptr++;
-            buff++;
-        }
-    }
-
-    vkUpdateDescriptorSets(param.device,
-                           param.set_count * param.binding_count,
-                           writes, 0, NULL);
-
-    return ALLOCATE_AND_BIND_BUFFER_DESCRIPTORS_OK;
-}
-
-struct PushConst0 {
-    Mat4 view_proj;
-    Mat4 model_mat;
+struct DescriptorLight {
+    Vec4 light_src;
+    Vec4 light_col;
 };
 
-static const VkPushConstantRange push_ranges0[] = {
-    {
-      .offset = 0,
-      .size = sizeof(struct PushConst0),
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-    },
-};
-
-struct PushConst1 {
-    Mat4 model_mat;
-    struct {
-        Vec4 light_pos;
-        Vec4 light_col;
-    };
-};
-static const VkPushConstantRange push_ranges1[] = {
-    {
-      .offset = 0,
-      .size = sizeof(Mat4),
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-    },
-    {
-      .offset = offsetof(struct PushConst1, light_pos),
-      .size = sizeof(struct PushConst1) -
-        offsetof(struct PushConst1, light_pos),
-      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-    }
-};
-
-struct DescriptorStruct1 {
-    struct {
-        Mat4 view_proj;
-    } set0;
-};
-
-static const size_t i_descriptor_sets_bindings_count1[] = {
-    1,
-};
-
-static const size_t i_descriptor_sets_bindings_offsets1_0[] = {
-    offsetof(struct DescriptorStruct1, set0),
-};
-
-static const size_t i_descriptor_sets_bindings_ranges1_0[] = {
-    member_size(struct DescriptorStruct1, set0),
-};
-
-static const VkDescriptorType
-  i_descriptor_sets_bindings_types1_0[] = {
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-  };
-
-static const size_t *ip_descriptor_sets_bindings_offsets1[] = {
-    i_descriptor_sets_bindings_offsets1_0,
-};
-static const size_t *ip_descriptor_sets_bindings_ranges1[] = {
-    i_descriptor_sets_bindings_ranges1_0,
-};
-static const VkDescriptorType *ip_descriptor_sets_bindings_types1[] = {
-    i_descriptor_sets_bindings_types1_0,
-};
-
-int create_descriptor_layouts1(VkAllocationCallbacks *alloc_callbacks,
+int create_descriptor_layouts(VkAllocationCallbacks *alloc_callbacks,
                                CreateDescriptorLayoutsParam param) {
 
 
@@ -472,7 +240,7 @@ int create_descriptor_layouts1(VkAllocationCallbacks *alloc_callbacks,
           .binding = 0,
           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
           .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+          .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
 
         },
     };
@@ -483,77 +251,300 @@ int create_descriptor_layouts1(VkAllocationCallbacks *alloc_callbacks,
         .bindingCount = COUNT_OF(bindings),
     };
 
-    *param.p_layouts = malloc(sizeof(VkDescriptorSetLayout) * 1);
-    if (!param.p_layouts[0])
-        return CREATE_DESCRIPTOR_LAYOUTS_MEM_ALLOC_ERR;
-    *param.p_layout_count = 1;
-
     result = vkCreateDescriptorSetLayout(
       param.device, &set_layout_create, alloc_callbacks,
-      param.p_layouts[0]);
+      param.p_lights_set_layout);
 
     if (result != VK_SUCCESS)
-        return CREATE_DESCRIPTOR_LAYOUTS_ERR;
+        return CREATE_DESCRIPTOR_LAYOUTS_LIGHTS_LAYOUT_FAIL;
+
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    bindings[0].descriptorCount = 2;
+    result = vkCreateDescriptorSetLayout(
+      param.device, &set_layout_create, alloc_callbacks,
+      param.p_matrix_set_layout);
+
+    if (result != VK_SUCCESS)
+        return CREATE_DESCRIPTOR_LAYOUTS_MATRICES_LAYOUT_FAIL;
 
 
     return CREATE_DESCRIPTOR_LAYOUTS_OK;
 }
 
-int create_descriptor_pool1(VkAllocationCallbacks *alloc_callbacks,
+
+typedef struct {
+    VkDevice device;
+
+
+    VkDescriptorSetLayout *p_matrix_set_layout;
+    VkDescriptorSetLayout *p_lights_set_layout;
+} ClearDescriptorLayoutsParam;
+
+void clear_descriptor_layouts(VkAllocationCallbacks *alloc_callbacks,
+                              ClearDescriptorLayoutsParam param,
+                              int err_code) {
+    switch (err_code) {
+    case CREATE_DESCRIPTOR_LAYOUTS_OK:
+
+        vkDestroyDescriptorSetLayout(
+          param.device, *param.p_matrix_set_layout, alloc_callbacks);
+    case CREATE_DESCRIPTOR_LAYOUTS_MATRICES_LAYOUT_FAIL:
+        *param.p_matrix_set_layout = VK_NULL_HANDLE;
+
+
+        vkDestroyDescriptorSetLayout(
+          param.device, *param.p_lights_set_layout, alloc_callbacks);
+    case CREATE_DESCRIPTOR_LAYOUTS_LIGHTS_LAYOUT_FAIL:
+        *param.p_lights_set_layout = VK_NULL_HANDLE;
+
+
+    case CREATE_DESCRIPTOR_LAYOUTS_ERR:
+
+        break;
+    }
+}
+
+
+enum CreateDescriptorPoolCodes {
+    CREATE_DESCRIPTOR_POOL_FAIL = -0x7fff,
+    CREATE_DESCRIPTOR_POOL_OK = 0
+};
+typedef struct {
+    VkDevice device;
+    size_t no_matrix_sets;
+    size_t no_light_sets;
+
+    VkDescriptorPool *p_descriptor_pool;
+} CreateDescriptorPoolParam;
+
+
+int create_descriptor_pool(VkAllocationCallbacks *alloc_callbacks,
                             CreateDescriptorPoolParam param) {
 
     VkResult res = VK_SUCCESS;
+    
+
 
     VkDescriptorPoolSize pool_sizes[] = {
         {
           .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-          .descriptorCount = (1) * param.no_sets,
+          .descriptorCount = param.no_light_sets + param.no_matrix_sets * 2,
         },
     };
 
     VkDescriptorPoolCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .maxSets = param.no_sets,
+        .maxSets = param.no_light_sets + param.no_matrix_sets,
         .poolSizeCount = COUNT_OF(pool_sizes),
         .pPoolSizes = pool_sizes,
     };
 
     res = vkCreateDescriptorPool(param.device, &create_info,
-                                 alloc_callbacks, param.p_pool);
+                                 alloc_callbacks, param.p_descriptor_pool);
     if (res != VK_SUCCESS)
         return CREATE_DESCRIPTOR_POOL_FAIL;
 
     return CREATE_DESCRIPTOR_POOL_OK;
 }
 
-typedef struct PushConst1 PushConst;
-static const VkPushConstantRange *push_ranges = push_ranges1;
-static const size_t push_range_count = COUNT_OF(push_ranges1);
 
-typedef struct DescriptorStruct1 DescriptorStruct;
+typedef struct {
+    VkDevice device;
 
-// Mallocs descriptor set layouts for each descriptor set
-// to be used
-static const PFNCreateDesciptorLayouts create_descriptor_layouts =
-  create_descriptor_layouts1;
+    VkDescriptorPool *p_descriptor_pool;
+} ClearDescriptorPoolParam;
+void clear_descriptor_pool(VkAllocationCallbacks *alloc_callbacks,
+                           ClearDescriptorPoolParam param,
+                           int err_code) {
+    switch (err_code) {
+    case CREATE_DESCRIPTOR_POOL_OK:
+        vkDestroyDescriptorPool(
+          param.device, *param.p_descriptor_pool,
+                                alloc_callbacks);
+    case CREATE_DESCRIPTOR_POOL_FAIL:
+        *param.p_descriptor_pool = VK_NULL_HANDLE;
+    }
+}
 
-// Used to allocate all the descriptor sets for each descriptor set
-// layouts
-static const PFNCreateDescriptorPool create_descriptor_pool =
-  create_descriptor_pool1;
+typedef struct {
+    VkDevice device;
 
-static const size_t *p_descriptor_sets_bindings_count =
-  i_descriptor_sets_bindings_count1;
-static const size_t **pp_descriptor_sets_bindings_offsets =
-  ip_descriptor_sets_bindings_offsets1;
-static const size_t **pp_descriptor_sets_bindings_ranges =
-  ip_descriptor_sets_bindings_ranges1;
-static const VkDescriptorType **pp_descriptor_sets_bindings_types =
-  ip_descriptor_sets_bindings_types1;
+    VkDescriptorPool pool;
 
 
-static const char *vert_file_name = "shaders/out/demo1.vert.hlsl.spv";
-static const char *frag_file_name = "shaders/out/demo1.frag.hlsl.spv";
+    VkDescriptorSetLayout matrix_set_layout;
+    size_t matrix_sets_count;
+    GpuAllocrAllocatedBuffer *p_matrix_buffers; //One buffer for each set
+    VkDescriptorSet *p_matrix_sets;             //Should be preallocated
+
+    VkDescriptorSetLayout lights_set_layout;
+    size_t lights_sets_count;
+    GpuAllocrAllocatedBuffer *p_light_buffers;  //One buffer for each set
+    VkDescriptorSet *p_light_sets;              //Should be preallocated
+
+} AllocateAndBindDescriptorsParam;
+
+enum AllocateAndBindDescriptorsCodes {
+    ALLOCATE_AND_BIND_DESCRIPTORS_FAIL = -0x7fff,
+    ALLOCATE_AND_BIND_DESCRIPTORS_MATRIX_ALLOC_DESCRIPTORS_FAIL,
+    ALLOCATE_AND_BIND_DESCRIPTORS_MATRIX_INTERNAL_ALLOC_FAIL,
+    ALLOCATE_AND_BIND_DESCRIPTORS_LIGHTS_ALLOC_DESCRIPTORS_FAIL,
+    ALLOCATE_AND_BIND_DESCRIPTORS_LIGHTS_INTERNAL_ALLOC_FAIL,
+    ALLOCATE_AND_BIND_DESCRIPTORS_OK = 0,
+};
+
+// Allocates a bunch of sets for singular set layout
+int allocate_and_bind_descriptors(
+  StackAllocator *p_stk_allocr, size_t stk_offset,
+  VkAllocationCallbacks *alloc_callbacks,
+  AllocateAndBindDescriptorsParam param) {
+    
+      {
+        size_t off = stk_offset;
+        VkDescriptorSetLayout *dummy = stack_allocate(
+          p_stk_allocr, &off,
+          sizeof(VkDescriptorSetLayout) * param.lights_sets_count,
+          sizeof(VkDescriptorSetLayout));
+
+        if (dummy == NULL)
+            return ALLOCATE_AND_BIND_DESCRIPTORS_LIGHTS_INTERNAL_ALLOC_FAIL;
+
+        for (size_t i = 0; i < param.lights_sets_count; ++i)
+            dummy[i] = param.lights_set_layout;
+
+        VkDescriptorSetAllocateInfo alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = param.pool,
+            .pSetLayouts = dummy,
+            .descriptorSetCount = param.lights_sets_count,
+        };
+
+        VkResult res = vkAllocateDescriptorSets(
+          param.device, &alloc_info, param.p_light_sets);
+        if (res != VK_SUCCESS)
+            return ALLOCATE_AND_BIND_DESCRIPTORS_LIGHTS_ALLOC_DESCRIPTORS_FAIL;
+    }
+      {
+        size_t off = stk_offset;
+        VkDescriptorSetLayout *dummy = stack_allocate(
+          p_stk_allocr, &off,
+          sizeof(VkDescriptorSetLayout) * param.matrix_sets_count,
+          sizeof(VkDescriptorSetLayout));
+
+        if (dummy == NULL)
+            return ALLOCATE_AND_BIND_DESCRIPTORS_MATRIX_INTERNAL_ALLOC_FAIL;
+
+        for (size_t i = 0; i < param.matrix_sets_count; ++i)
+            dummy[i] = param.matrix_set_layout;
+
+        VkDescriptorSetAllocateInfo alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = param.pool,
+            .pSetLayouts = dummy,
+            .descriptorSetCount = param.matrix_sets_count,
+        };
+
+        VkResult res = vkAllocateDescriptorSets(
+          param.device, &alloc_info, param.p_matrix_sets);
+        if (res != VK_SUCCESS)
+            return ALLOCATE_AND_BIND_DESCRIPTORS_MATRIX_ALLOC_DESCRIPTORS_FAIL;
+    }
+
+
+    VkWriteDescriptorSet *writes = stack_allocate(
+      p_stk_allocr, &stk_offset,
+      sizeof(VkWriteDescriptorSet) *
+        (param.lights_sets_count + param.matrix_sets_count),
+      sizeof(uintptr_t));
+
+    VkDescriptorBufferInfo *buff_infos = stack_allocate(
+      p_stk_allocr, &stk_offset,
+      sizeof(VkDescriptorBufferInfo) *
+        (param.lights_sets_count + 2 * param.matrix_sets_count),
+      sizeof(uintptr_t));
+
+    if (!writes || !buff_infos)
+        return ALLOCATE_AND_BIND_DESCRIPTORS_FAIL;
+
+    int offset = 0;
+    for(int i = 0; i < param.lights_sets_count; ++i) {
+        writes[i + offset] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = param.p_light_sets[i],
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pBufferInfo = buff_infos + i + offset,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+
+        };
+        buff_infos[i + offset] = (VkDescriptorBufferInfo){
+            .buffer = param.p_light_buffers[i].buffer,
+            .offset = 0,
+            .range = sizeof(struct DescriptorLight),
+        };
+    }
+    offset += param.lights_sets_count;
+
+    for(int i = 0; i < param.matrix_sets_count; ++i) {
+        writes[i + offset] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = param.p_matrix_sets[i],
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pBufferInfo = buff_infos + 2*i + offset,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 2,
+
+        };
+        buff_infos[2*i +0 + offset] = (VkDescriptorBufferInfo){
+            .buffer = param.p_matrix_buffers[i].buffer,
+            .offset = offsetof(struct DescriptorMats,view),
+            .range = member_size(struct DescriptorMats,view),
+        };
+        buff_infos[2*i +1+ offset] = (VkDescriptorBufferInfo){
+            .buffer = param.p_matrix_buffers[i].buffer,
+            .offset = offsetof(struct DescriptorMats,proj),
+            .range = member_size(struct DescriptorMats,proj),
+        };
+    }
+
+
+    vkUpdateDescriptorSets(param.device,
+                           param.lights_sets_count + param.matrix_sets_count,
+                           writes, 0, NULL);
+
+    return ALLOCATE_AND_BIND_DESCRIPTORS_OK;
+}
+
+struct PushConst {
+    struct {
+        Mat4 model_mat;
+    }vert_consts;
+    struct {
+        Vec4 model_col;
+    }frag_consts;
+};
+
+typedef struct PushConst PushConst;
+
+static const VkPushConstantRange push_ranges[] = {
+    {
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .offset = offsetof(PushConst, vert_consts),
+      .size = member_size(PushConst, vert_consts),
+    },
+    {
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .offset = offsetof(PushConst, frag_consts),
+      .size = member_size(PushConst, frag_consts),
+    },
+};
+
+static const size_t push_range_count = COUNT_OF(push_ranges);
+
+static const char *vert_file_name = "shaders/out/demo0.vert.hlsl.spv";
+static const char *frag_file_name = "shaders/out/demo0.frag.hlsl.spv";
 
 // Based on currently used vertices and indices
 struct Model {
@@ -766,8 +757,6 @@ LoadSphereOutput load_sphere_uv(StackAllocator *stk_allocr,
     // Fill the normals by just normalizing the vertices
     for (int i = 0; i < out.vertex_count; ++i) {
         out.vertices[i].normal = vec3_normalize(out.vertices[i].pos);
-        out.vertices[i].color =
-          (Vec3){ .r = 0.5f, .g = 0.5f, .b = 0.9f };
         out.vertices[i].uv = (Vec2){ 0.f, 0.f };
     }
 

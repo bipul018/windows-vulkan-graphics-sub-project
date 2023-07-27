@@ -117,10 +117,10 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
             switch (wparam) {
                 if (pdata->qweasd) {
                 case 'Q':
-                        pdata->qweasd->z--;
+                    pdata->qweasd->z--;
                     break;
                 case 'E':
-                        pdata->qweasd->z++;
+                    pdata->qweasd->z++;
                     break;
                 case 'A':
                     pdata->qweasd->x--;
@@ -134,7 +134,6 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
                 case 'S':
                     pdata->qweasd->y++;
                     break;
-
                 }
                 if (pdata->uiojkl) {
                 case 'U':
@@ -155,13 +154,11 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
                 case 'K':
                     pdata->uiojkl->y++;
                     break;
-
                 }
-
             }
         }
-        if(msg == WM_MOUSEWHEEL) {
-            if(pdata->scroll) {
+        if (msg == WM_MOUSEWHEEL) {
+            if (pdata->scroll) {
                 pdata->scroll[0] +=
                   (float)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
             }
@@ -182,6 +179,13 @@ int main(int argc, char *argv[]) {
 
         MAIN_FAIL_GRAPHICS_PIPELINE,
         MAIN_FAIL_GRAPHICS_PIPELINE_LAYOUT,
+
+        MAIN_FAIL_DESCRIPTOR_ALLOC_AND_BIND,
+        MAIN_FAIL_DESCRIPTOR_MEM_ALLOC,
+        MAIN_FAIL_DESCRIPTOR_BUFFER,
+        MAIN_FAIL_DESCRIPTOR_BUFFER_MEM_ALLOC,
+        MAIN_FAIL_DESCRIPTOR_POOL,
+        MAIN_FAIL_DESCRIPTOR_LAYOUT,
 
         MAIN_FAIL_MODEL_LOAD,
 
@@ -473,10 +477,10 @@ int main(int argc, char *argv[]) {
 
     // Info to collect for total memory
 
-    // For now , required memory type will be hardcoded, later must be
-    // properly evaluated, maybe after textures are implemented
+    // For now , required memory types will be hardcoded, later must
+    // be properly evaluated, maybe after textures are implemented
     uint32_t memory_type_flags = 255;
-    size_t total_gpu_memory = sizeof(VertexInput) * 2000;
+    size_t total_gpu_memory = SIZE_MB(50);
     // Now create gpu memory allocator
     GPUAllocator gpu_mem_allocr = { 0 };
     {
@@ -498,7 +502,7 @@ int main(int argc, char *argv[]) {
     // Now create the vertex buffers, that are constant across frames
     struct Model square_model = { 0 };
     {
-        float r1_3 = sqrtf(1.f/3.f);
+        float r1_3 = sqrtf(1.f / 3.f);
 
         const VertexInput major_vertex_sample_data[] = {
             { { -50.f, -50.f, 50.f },
@@ -536,23 +540,18 @@ int main(int argc, char *argv[]) {
         };
 
         const uint16_t major_index_sample_data[] = {
-            0, 1, 2, 1, 0, 3,
-            4,6,5,5,7,4,
-            1,3,7,7,5,1,
-            4,0,2,2,6,4,
-            2,5,6,2,1,5,
-            0,4,7,7,3,0,
+            0, 1, 2, 1, 0, 3, 4, 6, 5, 5, 7, 4, 1, 3, 7, 7, 5, 1,
+            4, 0, 2, 2, 6, 4, 2, 5, 6, 2, 1, 5, 0, 4, 7, 7, 3, 0,
         };
 
-        //generate a cylinder ? 
-        // generate two cirles, / polygons, with center also as vertices
-        // with radially outwards normals
-        // add +-z to those
-        // renormalize the normals
-        // 
-        // for indices:
-        // one triangle for each end faces' center and two edges
-        // two triangles for each side
+        // generate a cylinder ?
+        //  generate two cirles, / polygons, with center also as
+        //  vertices with radially outwards normals add +-z to those
+        //  renormalize the normals
+        //
+        //  for indices:
+        //  one triangle for each end faces' center and two edges
+        //  two triangles for each side
         //
 
         const int divs = 3;
@@ -583,12 +582,12 @@ int main(int argc, char *argv[]) {
         int inx_count = 0;
         for (int i = 0; i < divs; ++i) {
 
-            float nx = cosf(i * M_PI * 2.f/divs);
-            float ny = sinf(i * M_PI * 2.f/divs);
+            float nx = cosf(i * M_PI * 2.f / divs);
+            float ny = sinf(i * M_PI * 2.f / divs);
             float fx = radius * nx;
             float fy = radius * ny;
-            float bx = (radius -bevel)* nx;
-            float by = (radius -bevel)* ny;
+            float bx = (radius - bevel) * nx;
+            float by = (radius - bevel) * ny;
             {
 
                 // For front
@@ -625,81 +624,79 @@ int main(int argc, char *argv[]) {
                 verts[i + 3 * divs].normal =
                   (Vec3){ .x = 0.f, .y = 0.f, .z = 1.f };
                 verts[i + 3 * divs].color = back_col;
-
             }
 
 
-            //For front face
+            // For front face
             indxs[inx_count++] = i;
             indxs[inx_count++] = (i + 1) % divs;
             indxs[inx_count++] = n_verts - 2;
-            
-            //For front bevel
-            indxs[inx_count++] = i ;
-            indxs[inx_count++] = i + divs ;
-            indxs[inx_count++] = (i + 1) % divs + divs ;
-            
-            indxs[inx_count++] = (i + 1) % divs + divs ;
-            indxs[inx_count++] = (i + 1) % divs ;
-            indxs[inx_count++] = i ;
 
-
-            //For side
-            indxs[inx_count++] = i  + divs;
-            indxs[inx_count++] = i + divs*2;
-            indxs[inx_count++] = (i + 1) % divs + divs*2;
-
-            indxs[inx_count++] = (i + 1) % divs + divs*2;
+            // For front bevel
+            indxs[inx_count++] = i;
+            indxs[inx_count++] = i + divs;
             indxs[inx_count++] = (i + 1) % divs + divs;
-            indxs[inx_count++] = i +divs;
 
-            //For back bevel
+            indxs[inx_count++] = (i + 1) % divs + divs;
+            indxs[inx_count++] = (i + 1) % divs;
+            indxs[inx_count++] = i;
+
+
+            // For side
+            indxs[inx_count++] = i + divs;
+            indxs[inx_count++] = i + divs * 2;
+            indxs[inx_count++] = (i + 1) % divs + divs * 2;
+
+            indxs[inx_count++] = (i + 1) % divs + divs * 2;
+            indxs[inx_count++] = (i + 1) % divs + divs;
+            indxs[inx_count++] = i + divs;
+
+            // For back bevel
             indxs[inx_count++] = i + divs * 2;
             indxs[inx_count++] = i + divs * 3;
             indxs[inx_count++] = (i + 1) % divs + divs * 3;
-            
+
             indxs[inx_count++] = (i + 1) % divs + divs * 3;
             indxs[inx_count++] = (i + 1) % divs + divs * 2;
             indxs[inx_count++] = i + divs * 2;
 
-            //For back face
-            indxs[inx_count++] = divs*3 + (i + 1) % divs;
-            indxs[inx_count++] = divs*3 + i;
+            // For back face
+            indxs[inx_count++] = divs * 3 + (i + 1) % divs;
+            indxs[inx_count++] = divs * 3 + i;
             indxs[inx_count++] = n_verts - 1;
-
-
         }
 
         verts[n_verts - 2].normal = (Vec3){ 0.f, 0.f, -1.f };
         verts[n_verts - 1].normal = (Vec3){ 0.f, 0.f, 1.f };
-        verts[n_verts - 2].pos = (Vec3){ 0.f, 0.f, -(bevel+depth/2) };
-        verts[n_verts - 1].pos = (Vec3){ 0.f, 0.f,  (bevel+depth/2) };
+        verts[n_verts - 2].pos =
+          (Vec3){ 0.f, 0.f, -(bevel + depth / 2) };
+        verts[n_verts - 1].pos =
+          (Vec3){ 0.f, 0.f, (bevel + depth / 2) };
         verts[n_verts - 2].color = front_col;
         verts[n_verts - 1].color = back_col;
-        
 
-        //Eh, make this cylinder a sphere 
+
+        // Eh, make this cylinder a sphere
 
         /*for(int i = 0; i < n_verts; ++i) {
             verts[i].pos =
               vec3_scale_fl(vec3_normalize(verts[i].pos), radius);
-        
+
             verts[i].normal = vec3_normalize(verts[i].pos);
         }*/
 
         LoadSphereOutput outs =
-          load_sphere_uv(ptr_stk_allocr, stk_offset, 2, 200);
+          load_sphere_uv(ptr_stk_allocr, stk_offset, 3, 200);
 
-        
+
         n_verts = outs.vertex_count;
         n_indxs = outs.index_count;
         verts = outs.vertices;
         indxs = outs.indices;
 
 
-        if (create_model(
-              ptr_alloc_callbacks,
-              (CreateModelParam){
+        if (create_model(ptr_alloc_callbacks,
+                         (CreateModelParam){
                            .device = device.device,
                            .p_allocr = &gpu_mem_allocr,
                            .index_count = n_indxs,
@@ -710,19 +707,105 @@ int main(int argc, char *argv[]) {
                          &square_model) < 0)
             return_main_fail(MAIN_FAIL_MODEL_LOAD);
 
-        //if (create_model(
-        //      ptr_alloc_callbacks,
-        //      (CreateModelParam){
-        //        .device = device.device,
-        //        .p_allocr = &gpu_mem_allocr,
-        //        .index_count = COUNT_OF(major_index_sample_data),
-        //        .indices_list = major_index_sample_data,
-        //        .vertex_count = COUNT_OF(major_vertex_sample_data),
-        //        .vertices_list = major_vertex_sample_data },
-        //      &square_model) < 0)
-        //    return_main_fail(MAIN_FAIL_MODEL_LOAD);
+        // if (create_model(
+        //       ptr_alloc_callbacks,
+        //       (CreateModelParam){
+        //         .device = device.device,
+        //         .p_allocr = &gpu_mem_allocr,
+        //         .index_count = COUNT_OF(major_index_sample_data),
+        //         .indices_list = major_index_sample_data,
+        //         .vertex_count = COUNT_OF(major_vertex_sample_data),
+        //         .vertices_list = major_vertex_sample_data },
+        //       &square_model) < 0)
+        //     return_main_fail(MAIN_FAIL_MODEL_LOAD);
     }
 
+
+    // Create descriptor layouts
+    VkDescriptorSetLayout *g_descriptor_layouts = NULL;
+    size_t g_descriptor_layout_count;
+    {
+        err_code = create_descriptor_layouts(
+          ptr_alloc_callbacks,
+          (CreateDescriptorLayoutsParam){
+            .device = device.device,
+            .p_layouts = &g_descriptor_layouts,
+            .p_layout_count = &g_descriptor_layout_count,
+          });
+        if (err_code < 0)
+            return_main_fail(MAIN_FAIL_DESCRIPTOR_LAYOUT);
+    }
+
+    // Create descriptor pool
+    VkDescriptorPool g_descriptor_pool = VK_NULL_HANDLE;
+    {
+        err_code =
+          create_descriptor_pool(ptr_alloc_callbacks,
+                                 (CreateDescriptorPoolParam){
+                                   .device = device.device,
+                                   .no_sets = max_frames_in_flight,
+                                   .p_pool = &g_descriptor_pool });
+        if (err_code < 0)
+            return_main_fail(MAIN_FAIL_DESCRIPTOR_POOL);
+    }
+
+    // Create buffers for descriptors
+    GpuAllocrAllocatedBuffer *g_descriptor_buffers;
+    {
+        g_descriptor_buffers = stack_allocate(
+          ptr_stk_allocr, &stk_offset,
+          sizeof(GpuAllocrAllocatedBuffer) * max_frames_in_flight, 1);
+        if (!g_descriptor_buffers)
+            return_main_fail(MAIN_FAIL_DESCRIPTOR_BUFFER_MEM_ALLOC);
+        ZeroMemory(g_descriptor_buffers,
+                   sizeof(GpuAllocrAllocatedBuffer) *
+                     max_frames_in_flight);
+    }
+    {
+        for (size_t i = 0; i < max_frames_in_flight; ++i) {
+            err_code = create_and_allocate_buffer(
+              ptr_alloc_callbacks, &gpu_mem_allocr, device.device,
+              (CreateAndAllocateBufferParam){
+                .p_buffer = g_descriptor_buffers + i,
+                .share_mode = VK_SHARING_MODE_EXCLUSIVE,
+                .size = sizeof(DescriptorStruct),
+                .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+              });
+            if (err_code < 0)
+                return_main_fail(MAIN_FAIL_DESCRIPTOR_BUFFER);
+        }
+    }
+    VkDescriptorSet *g_descriptor_sets = NULL;
+    {
+        g_descriptor_sets = stack_allocate(
+          ptr_stk_allocr, &stk_offset,
+          sizeof(VkDescriptorSet) * max_frames_in_flight,
+          sizeof(uintptr_t));
+        if (!g_descriptor_sets)
+            return_main_fail(MAIN_FAIL_DESCRIPTOR_MEM_ALLOC);
+        ZeroMemory(g_descriptor_sets,
+                   max_frames_in_flight * sizeof *g_descriptor_sets);
+    }
+    {
+
+
+        err_code = allocate_and_bind_buffer_descriptors(
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
+          (AllocateAndBindBufferDescriptorsParam){
+            .device = device.device,
+            .pool = g_descriptor_pool,
+            .layout = g_descriptor_layouts[0],
+            .set_count = max_frames_in_flight,
+            .binding_count = p_descriptor_sets_bindings_count[0],
+            .buffers = g_descriptor_buffers,
+            .offsets = pp_descriptor_sets_bindings_offsets[0],
+            .ranges = pp_descriptor_sets_bindings_ranges[0],
+            .types = pp_descriptor_sets_bindings_types[0],
+            .p_des_sets = g_descriptor_sets,
+          });
+        if (err_code < 0)
+            return_main_fail(MAIN_FAIL_DESCRIPTOR_ALLOC_AND_BIND);
+    }
 
     // Now create the graphics pipeline layout, with only push
     // constant of a float for now
@@ -731,9 +814,10 @@ int main(int argc, char *argv[]) {
 
         VkPipelineLayoutCreateInfo create_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .pushConstantRangeCount = COUNT_OF(push_ranges),
+            .pushConstantRangeCount = push_range_count,
             .pPushConstantRanges = push_ranges,
-
+            .setLayoutCount = g_descriptor_layout_count,
+            .pSetLayouts = g_descriptor_layouts,
 
         };
 
@@ -776,8 +860,8 @@ int main(int argc, char *argv[]) {
             .device = device.device,
             .pipe_layout = graphics_pipeline_layout,
             .subpass_index = 0,
-            .vert_shader_file = "shaders/out/demo.vert.hlsl.spv",
-            .frag_shader_file = "shaders/out/demo.frag.hlsl.spv",
+            .vert_shader_file = vert_file_name,
+            .frag_shader_file = frag_file_name,
             .p_pipeline = &graphics_pipeline });
         if (err_code < 0)
             return_main_fail(MAIN_FAIL_GRAPHICS_PIPELINE);
@@ -788,18 +872,18 @@ int main(int argc, char *argv[]) {
     // Miscellaneous data + data to transform models
     Vec3 sq_rotate = { 0 };
     Vec3 sq_translate = { 0 };
-    Vec3 sq_scale = { 1.f,1.f,1.f };
+    Vec3 sq_scale = { 1.f, 1.f, 1.f };
     float sq_scale_pow = 0;
 
     winproc_data.qweasd = &sq_translate;
     winproc_data.uiojkl = &sq_rotate;
     winproc_data.scroll = &sq_scale_pow;
 
-    Vec3 world_min = { -300,-300,-900};
-    Vec3 world_max = { 300, 300, 900 };
+    Vec3 world_min = { -300, -300, -400 };
+    Vec3 world_max = { 300, 300, 400 };
 
-    Vec3 light = { 0.f, 1.f, 1.f };
-    //light = vec3_normalize(light);
+    Vec3 light = { 0.f, 400.f, -400.f };
+    // light = vec3_normalize(light);
     MSG msg = { 0 };
     while (msg.message != WM_QUIT) {
         // Setup miscelannous data if needed
@@ -881,27 +965,44 @@ int main(int argc, char *argv[]) {
                   VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
             }
 
+            DescriptorStruct desc = { 0 };
+            PushConst pushes = { 0 };
+            desc.set0.view_proj = (Mat4)MAT4_IDENTITIY;
+            pushes.model_mat = (Mat4)MAT4_IDENTITIY;
+            pushes.light_col = (Vec4){ { 1.0f, 1.0f, 1.0f, 1.0f } };
+            pushes.light_pos = vec4_from_vec3(light, 1.f);
 
-            struct PushConst pushes = { 0 };
-            pushes.view_proj = (Mat4)MAT4_IDENTITIY;
+            
+
+
+            desc.set0.view_proj =
+              mat4_orthographic(world_min, world_max);
+            *((DescriptorStruct *)
+                g_descriptor_buffers[curr_frame_in_flight]
+                  .mapped_memory) = desc;
+            vkCmdBindDescriptorSets(
+              rndr_cmd_buffers[curr_frame_in_flight],
+              VK_PIPELINE_BIND_POINT_GRAPHICS,
+              graphics_pipeline_layout, 0, 1,
+              g_descriptor_sets + curr_frame_in_flight, 0, NULL);
 
             Mat4 translate = mat4_translate_3(
               sq_translate.x, sq_translate.y, sq_translate.z);
-            Mat4 rotate = mat4_rotation_XYZ(vec3_to_radians(sq_rotate));
+            Mat4 rotate =
+              mat4_rotation_XYZ(vec3_to_radians(sq_rotate));
             Mat4 scale =
               mat4_scale_3(sq_scale.x, sq_scale.y, sq_scale.z);
 
             pushes.model_mat =
               mat4_multiply_mat_3(&translate, &rotate, &scale);
-            pushes.view_proj =
-              mat4_orthographic(world_min, world_max);
-            pushes.model_mat.cols[3] =
-              (Vec4){ light.x, light.y, light.z,1.0f };
 
-            vkCmdPushConstants(rndr_cmd_buffers[curr_frame_in_flight],
-                               graphics_pipeline_layout,
-                               VK_SHADER_STAGE_VERTEX_BIT, 0,
-                               sizeof(struct PushConst), &pushes);
+            for(int i = 0; i < push_range_count; ++i) {
+                vkCmdPushConstants(
+                  rndr_cmd_buffers[curr_frame_in_flight],
+                  graphics_pipeline_layout, push_ranges[i].stageFlags,
+                  push_ranges[i].offset, push_ranges[i].size,
+                  (uint8_t *)&pushes + push_ranges[i].offset);
+            }
 
             submit_model_draw(&square_model,
                               rndr_cmd_buffers[curr_frame_in_flight]);
@@ -980,6 +1081,49 @@ cleanup_phase:
         err_code = 0;
     case MAIN_FAIL_GRAPHICS_PIPELINE_LAYOUT:
 
+        err_code = 0;
+    case MAIN_FAIL_DESCRIPTOR_ALLOC_AND_BIND:
+
+
+        err_code = 0;
+    case MAIN_FAIL_DESCRIPTOR_MEM_ALLOC:
+        g_descriptor_sets = NULL;
+
+        err_code = 0;
+    case MAIN_FAIL_DESCRIPTOR_BUFFER:
+        for(int i = 0; i < max_frames_in_flight; ++i) {
+            if (g_descriptor_buffers[i].buffer)
+                vkDestroyBuffer(device.device,
+                                g_descriptor_buffers[i].buffer,
+                                ptr_alloc_callbacks);
+        }
+        ZeroMemory(g_descriptor_buffers,
+                   max_frames_in_flight *
+                     sizeof *g_descriptor_buffers);
+
+        err_code = 0;
+    case MAIN_FAIL_DESCRIPTOR_BUFFER_MEM_ALLOC:
+        g_descriptor_buffers = NULL;
+
+        err_code = 0;
+    case MAIN_FAIL_DESCRIPTOR_POOL:
+        clear_descriptor_pool(ptr_alloc_callbacks,
+                              (ClearDescriptorPoolParam){
+                                .device = device.device,
+                                .p_pool = &g_descriptor_pool,
+                              },
+                              err_code);
+
+        err_code = 0;
+    case MAIN_FAIL_DESCRIPTOR_LAYOUT:
+        clear_descriptor_layouts(
+          ptr_alloc_callbacks,
+          (ClearDescriptorLayoutsParam){
+            .device = device.device,
+            .p_layouts = &g_descriptor_layouts,
+            .p_layout_count = &g_descriptor_layout_count,
+          },
+          err_code);
 
         err_code = 0;
     case MAIN_FAIL_MODEL_LOAD:

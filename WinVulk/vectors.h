@@ -83,6 +83,10 @@ union Vec4 {
 typedef union Vec4 Vec4;
 typedef const Vec4 CVec4;
 
+Vec4 vec4_from_vec3(Vec3 v, float w) {
+    return (Vec4){ .x = v.x, .y = v.y, .z = v.z, .w = w };
+}
+
 typedef float Mat4Arr[4][4];
 union Mat4 {
     Mat4Arr mat;

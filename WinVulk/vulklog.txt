@@ -1,7 +1,28 @@
-UNASSIGNED-khronos-validation-createinstance-status-message(INFO / SPEC): msgNum: -671457468 - Validation Information: [ UNASSIGNED-khronos-validation-createinstance-status-message ] Object 0: handle = 0x1f6b32f0080, type = VK_OBJECT_TYPE_INSTANCE; | MessageID = 0xd7fa5f44 | Khronos Validation Layer Active:
+UNASSIGNED-khronos-validation-createinstance-status-message(INFO / SPEC): msgNum: -671457468 - Validation Information: [ UNASSIGNED-khronos-validation-createinstance-status-message ] Object 0: handle = 0x177f93f49e0, type = VK_OBJECT_TYPE_INSTANCE; | MessageID = 0xd7fa5f44 | Khronos Validation Layer Active:
     Settings File: Found at C:\Users\bipul\AppData\Local\LunarG\vkconfig\override\vk_layer_settings.txt specified by VkConfig application override.
     Current Enables: VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT.
     Current Disables: None.
 
     Objects: 1
-        [0] 0x1f6b32f0080, type: 1, name: NULL
+        [0] 0x177f93f49e0, type: 1, name: NULL
+VUID-VkWriteDescriptorSet-sType-sType(ERROR / SPEC): msgNum: -2093390251 - Validation Error: [ VUID-VkWriteDescriptorSet-sType-sType ] Object 0: handle = 0x177f9f386f0, type = VK_OBJECT_TYPE_DEVICE; | MessageID = 0x83396655 | vkUpdateDescriptorSets: parameter pDescriptorWrites[0].sType must be VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET The Vulkan spec states: sType must be VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET (https://vulkan.lunarg.com/doc/view/1.3.236.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-sType-sType)
+    Objects: 1
+        [0] 0x177f9f386f0, type: 3, name: NULL
+VUID-VkWriteDescriptorSet-sType-sType(ERROR / SPEC): msgNum: -2093390251 - Validation Error: [ VUID-VkWriteDescriptorSet-sType-sType ] Object 0: handle = 0x177f9f386f0, type = VK_OBJECT_TYPE_DEVICE; | MessageID = 0x83396655 | vkUpdateDescriptorSets: parameter pDescriptorWrites[1].sType must be VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET The Vulkan spec states: sType must be VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET (https://vulkan.lunarg.com/doc/view/1.3.236.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-sType-sType)
+    Objects: 1
+        [0] 0x177f9f386f0, type: 3, name: NULL
+VUID-VkWriteDescriptorSet-sType-sType(ERROR / SPEC): msgNum: -2093390251 - Validation Error: [ VUID-VkWriteDescriptorSet-sType-sType ] Object 0: handle = 0x177f9f386f0, type = VK_OBJECT_TYPE_DEVICE; | MessageID = 0x83396655 | vkUpdateDescriptorSets: parameter pDescriptorWrites[2].sType must be VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET The Vulkan spec states: sType must be VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET (https://vulkan.lunarg.com/doc/view/1.3.236.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-sType-sType)
+    Objects: 1
+        [0] 0x177f9f386f0, type: 3, name: NULL
+VUID-VkGraphicsPipelineCreateInfo-layout-00756(ERROR / SPEC): msgNum: 1165064310 - Validation Error: [ VUID-VkGraphicsPipelineCreateInfo-layout-00756 ] Object 0: handle = 0x3fbcd60000000028, type = VK_OBJECT_TYPE_SHADER_MODULE; Object 1: handle = 0xb097c90000000027, type = VK_OBJECT_TYPE_PIPELINE_LAYOUT; | MessageID = 0x45717876 | Push constant is used in VK_SHADER_STAGE_VERTEX_BIT of VkShaderModule 0x3fbcd60000000028[]. But VkPipelineLayout 0xb097c90000000027[] doesn't set VK_SHADER_STAGE_VERTEX_BIT. The Vulkan spec states: layout must be consistent with all shaders specified in pStages (https://vulkan.lunarg.com/doc/view/1.3.236.0/windows/1.3-extensions/vkspec.html#VUID-VkGraphicsPipelineCreateInfo-layout-00756)
+    Objects: 2
+        [0] 0x3fbcd60000000028, type: 15, name: NULL
+        [1] 0xb097c90000000027, type: 17, name: NULL
+VUID-VkGraphicsPipelineCreateInfo-layout-00756(ERROR / SPEC): msgNum: 1165064310 - Validation Error: [ VUID-VkGraphicsPipelineCreateInfo-layout-00756 ] Object 0: handle = 0x3fbcd60000000028, type = VK_OBJECT_TYPE_SHADER_MODULE; Object 1: handle = 0xb097c90000000027, type = VK_OBJECT_TYPE_PIPELINE_LAYOUT; | MessageID = 0x45717876 | Set 0 Binding 0 in shader uses descriptor slot but descriptor not accessible from stage VK_SHADER_STAGE_VERTEX_BIT The Vulkan spec states: layout must be consistent with all shaders specified in pStages (https://vulkan.lunarg.com/doc/view/1.3.236.0/windows/1.3-extensions/vkspec.html#VUID-VkGraphicsPipelineCreateInfo-layout-00756)
+    Objects: 2
+        [0] 0x3fbcd60000000028, type: 15, name: NULL
+        [1] 0xb097c90000000027, type: 17, name: NULL
+VUID-VkGraphicsPipelineCreateInfo-layout-00756(ERROR / SPEC): msgNum: 1165064310 - Validation Error: [ VUID-VkGraphicsPipelineCreateInfo-layout-00756 ] Object 0: handle = 0xb9181f0000000029, type = VK_OBJECT_TYPE_SHADER_MODULE; Object 1: handle = 0xb097c90000000027, type = VK_OBJECT_TYPE_PIPELINE_LAYOUT; | MessageID = 0x45717876 | Push constant is used in VK_SHADER_STAGE_FRAGMENT_BIT of VkShaderModule 0xb9181f0000000029[]. But VkPipelineLayout 0xb097c90000000027[] doesn't set VK_SHADER_STAGE_FRAGMENT_BIT. The Vulkan spec states: layout must be consistent with all shaders specified in pStages (https://vulkan.lunarg.com/doc/view/1.3.236.0/windows/1.3-extensions/vkspec.html#VUID-VkGraphicsPipelineCreateInfo-layout-00756)
+    Objects: 2
+        [0] 0xb9181f0000000029, type: 15, name: NULL
+        [1] 0xb097c90000000027, type: 17, name: NULL

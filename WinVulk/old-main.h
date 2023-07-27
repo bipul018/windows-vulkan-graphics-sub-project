@@ -368,7 +368,7 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
 
         VkDescriptorPoolSize descriptor_pool_size = {
             .descriptorCount = p_win->max_frames_in_flight,
-            .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .types = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         };
 
         VkDescriptorPoolCreateInfo descriptor_pool_info = {

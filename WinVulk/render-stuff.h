@@ -806,8 +806,10 @@ int end_rendering_operations(EndRenderingOperationsParam param) {
           &(VkPipelineStageFlags){
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }
     };
-    if (vkQueueSubmit(param.graphics_queue, 1, &render_submit_info,
-                      param.render_done_fence) != VK_SUCCESS)
+    VkResult result = VK_SUCCESS;
+    result = vkQueueSubmit(param.graphics_queue, 1, &render_submit_info,
+                    param.render_done_fence);
+    if (result != VK_SUCCESS)
         return END_RENDERING_OPERATIONS_GRAPHICS_QUEUE_SUBMIT_FAIL;
 
     VkPresentInfoKHR present_info = {
@@ -819,7 +821,7 @@ int end_rendering_operations(EndRenderingOperationsParam param) {
         .pWaitSemaphores = &param.render_done_semaphore,
     };
 
-    VkResult result =
+     result =
       vkQueuePresentKHR(param.present_queue, &present_info);
 
     if (result == VK_SUBOPTIMAL_KHR ||

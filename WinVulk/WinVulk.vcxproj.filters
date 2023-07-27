@@ -23,10 +23,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\in\demo.frag" />
-    <None Include="shaders\in\demo.vert" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="common-stuff.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -50,7 +46,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="shaders\in\demo.vert.hlsl" />
-    <FxCompile Include="shaders\in\demo.frag.hlsl" />
+    <FxCompile Include="shaders\in\demo0.vert.hlsl" />
+    <FxCompile Include="shaders\in\demo0.frag.hlsl" />
+    <FxCompile Include="shaders\in\demo1.vert.hlsl" />
+    <FxCompile Include="shaders\in\demo1.frag.hlsl" />
   </ItemGroup>
 </Project>

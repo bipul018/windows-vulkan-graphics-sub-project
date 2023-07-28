@@ -25,7 +25,7 @@
 // Read comments in imgui_impl_vulkan.h.
 
 #pragma once
-#include "imgui.h"      // IMGUI_IMPL_API
+//#include "../cimgui.h"      // IMGUI_IMPL_API
 
 // [Configuration] in order to use a custom Vulkan function loader:
 // (1) You'll need to disable default Vulkan function prototypes.
@@ -45,7 +45,24 @@
 #endif
 #include <vulkan/vulkan.h>
 
-// Initialization data, for ImGui_ImplVulkan_Init()
+#ifdef __cplusplus
+#include "imgui.h" // IMGUI_IMPL_API
+extern "C" {
+#else
+#include "../cimgui.h" // IMGUI_IMPL_API
+#define bool _Bool
+#define IMGUI_IMPL_API
+#endif
+
+    typedef struct ImGui_ImplVulkan_InitInfo ImGui_ImplVulkan_InitInfo;
+    typedef struct ImGui_ImplVulkanH_Frame ImGui_ImplVulkanH_Frame;
+    typedef struct ImGui_ImplVulkanH_Window ImGui_ImplVulkanH_Window;
+    typedef struct ImGui_ImplVulkanH_FrameSemaphores
+      ImGui_ImplVulkanH_FrameSemaphores;
+
+
+
+  // Initialization data, for ImGui_ImplVulkan_Init()
 // [Please zero-clear before use!]
 struct ImGui_ImplVulkan_InitInfo
 {
@@ -60,6 +77,12 @@ struct ImGui_ImplVulkan_InitInfo
     uint32_t                        MinImageCount;          // >= 2
     uint32_t                        ImageCount;             // >= MinImageCount
     VkSampleCountFlagBits           MSAASamples;            // >= VK_SAMPLE_COUNT_1_BIT (0 -> default to VK_SAMPLE_COUNT_1_BIT)
+
+    // Dynamic Rendering (Optional)
+    bool                            UseDynamicRendering;    // Need to explicitly enable VK_KHR_dynamic_rendering extension to use this, even for Vulkan 1.3.
+    VkFormat                        ColorAttachmentFormat;  // Required for dynamic rendering
+
+    // Allocation, Debugging
     const VkAllocationCallbacks*    Allocator;
     void                            (*CheckVkResultFn)(VkResult err);
 };
@@ -68,7 +91,9 @@ struct ImGui_ImplVulkan_InitInfo
 IMGUI_IMPL_API bool         ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, VkRenderPass render_pass);
 IMGUI_IMPL_API void         ImGui_ImplVulkan_Shutdown();
 IMGUI_IMPL_API void         ImGui_ImplVulkan_NewFrame();
-IMGUI_IMPL_API void         ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkPipeline pipeline = VK_NULL_HANDLE);
+
+IMGUI_IMPL_API void         ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkPipeline pipeline);
+//IMGUI_IMPL_API void         ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkPipeline pipeline = VK_NULL_HANDLE);
 IMGUI_IMPL_API bool         ImGui_ImplVulkan_CreateFontsTexture(VkCommandBuffer command_buffer);
 IMGUI_IMPL_API void         ImGui_ImplVulkan_DestroyFontUploadObjects();
 IMGUI_IMPL_API void         ImGui_ImplVulkan_SetMinImageCount(uint32_t min_image_count); // To override MinImageCount after initialization (e.g. if swap chain is recreated)
@@ -81,7 +106,7 @@ IMGUI_IMPL_API void            ImGui_ImplVulkan_RemoveTexture(VkDescriptorSet de
 
 // Optional: load Vulkan functions with a custom function loader
 // This is only useful with IMGUI_IMPL_VULKAN_NO_PROTOTYPES / VK_NO_PROTOTYPES
-IMGUI_IMPL_API bool         ImGui_ImplVulkan_LoadFunctions(PFN_vkVoidFunction(*loader_func)(const char* function_name, void* user_data), void* user_data = nullptr);
+IMGUI_IMPL_API bool         ImGui_ImplVulkan_LoadFunctions(PFN_vkVoidFunction(*loader_func)(const char* function_name, void* user_data), void* user_data );
 
 //-------------------------------------------------------------------------
 // Internal / Miscellaneous Vulkan Helpers
@@ -140,6 +165,7 @@ struct ImGui_ImplVulkanH_Window
     VkPresentModeKHR    PresentMode;
     VkRenderPass        RenderPass;
     VkPipeline          Pipeline;               // The window pipeline may uses a different VkRenderPass than the one passed in ImGui_ImplVulkan_InitInfo
+    bool                UseDynamicRendering;
     bool                ClearEnable;
     VkClearValue        ClearValue;
     uint32_t            FrameIndex;             // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
@@ -148,11 +174,15 @@ struct ImGui_ImplVulkanH_Window
     ImGui_ImplVulkanH_Frame*            Frames;
     ImGui_ImplVulkanH_FrameSemaphores*  FrameSemaphores;
 
-    ImGui_ImplVulkanH_Window()
-    {
-        memset((void*)this, 0, sizeof(*this));
-        PresentMode = (VkPresentModeKHR)~0;     // Ensure we get an error if user doesn't set this.
-        ClearEnable = true;
-    }
+    //ImGui_ImplVulkanH_Window()
+   // {
+   //     memset((void*)this, 0, sizeof(*this));
+   //     PresentMode = (VkPresentModeKHR)~0;     // Ensure we get an error if user doesn't set this.
+   //     ClearEnable = true;
+   // }
 };
+
+#ifdef __cplusplus
+}
+#endif
 

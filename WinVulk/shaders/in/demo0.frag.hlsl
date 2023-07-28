@@ -30,14 +30,19 @@ PSOutput main(PSInput input)
 {
     
     PSOutput output;
-    float prod = dot(normalize(ubo_data.source_location - input.world_pos),
+    float4 diff = ubo_data.source_location - input.world_pos;
+    float len = length(diff);
+    diff = diff / (len*len*0.001  + len  );
+    //printf("%f ", len);
+    
+    float prod = dot(diff,
                      normalize(input.Normal));
     
     
     output.Color = mul(ubo_data.source_color, prod);
     
     output.Color = max(float4(0.f, 0.f, 0.f, 1.f),
-                        output.Color) + float4(0.1f, 0.1f, 0.1f, 0.f);
+                        output.Color) + float4(0.4f, 0.1f, 0.1f, 0.f);
     
     //printf("Light : %f %f %f %f\tColor : %f %f %f %f\t", ubo_data.source_location.x, ubo_data.source_location.y, ubo_data.source_location.z, ubo_data.source_location.w, ubo_data.source_color.x, ubo_data.source_color.y, ubo_data.source_color.z, ubo_data.source_color.w);
     //printf("Model : %f %f %f %f\tColor : %f %f %f %f\t", push_data.model_color.x, push_data.model_color.y, push_data.model_color.z, push_data.model_color.w, output.Color.x, output.Color.y, output.Color.z, output.Color.w);

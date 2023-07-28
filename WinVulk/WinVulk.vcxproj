@@ -227,13 +227,31 @@ cd $(ProjectDir)</Command>
     </CustomBuildStep>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="imgui\cimgui.cpp" />
+    <ClCompile Include="imgui\imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui\imgui_demo.cpp" />
+    <ClCompile Include="imgui\imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="imgui\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui\imgui\imgui_tables.cpp" />
+    <ClCompile Include="imgui\imgui\imgui_widgets.cpp" />
     <ClCompile Include="main.c" />
     <ClCompile Include="window-stuff.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="common-stuff.h" />
     <ClInclude Include="device-mem-stuff.h" />
+    <ClInclude Include="imgui\cimgui.h" />
+    <ClInclude Include="imgui\imgui\imconfig.h" />
+    <ClInclude Include="imgui\imgui\imgui.h" />
+    <ClInclude Include="imgui\imgui\imgui_impl_vulkan.h" />
+    <ClInclude Include="imgui\imgui\imgui_impl_win32.h" />
+    <ClInclude Include="imgui\imgui\imgui_internal.h" />
+    <ClInclude Include="imgui\imgui\imstb_rectpack.h" />
+    <ClInclude Include="imgui\imgui\imstb_textedit.h" />
+    <ClInclude Include="imgui\imgui\imstb_truetype.h" />
     <ClInclude Include="misc_tools.h" />
+    <ClInclude Include="model_gen.h" />
     <ClInclude Include="old-main.h" />
     <ClInclude Include="render-stuff.h" />
     <ClInclude Include="vectors.h" />

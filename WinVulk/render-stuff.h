@@ -710,7 +710,7 @@ typedef struct {
     VkCommandBuffer cmd_buffer;
     VkSemaphore present_done_semaphore;
     VkFence render_done_fence;
-
+    VkClearValue clear_value;
 
     uint32_t *p_img_inx;
 
@@ -748,8 +748,7 @@ int begin_rendering_operations(BeginRenderingOperationsParam param) {
     if (result != VK_SUCCESS)
         return BEGIN_RENDERING_OPERATIONS_BEGIN_CMD_BUFFER_FAIL;
 
-    VkClearValue img_clear_col = { { { 0.0f, 0.0f, 0.0f, 0.5f } } };
-
+    
     VkRenderPassBeginInfo rndr_begin_info = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass = param.render_pass,
@@ -757,7 +756,7 @@ int begin_rendering_operations(BeginRenderingOperationsParam param) {
         .renderArea = { .offset = { 0, 0 },
                         .extent = param.framebuffer_render_extent },
         .clearValueCount = 1,
-        .pClearValues = &img_clear_col,
+        .pClearValues = &param.clear_value,
 
     };
     vkCmdBeginRenderPass(param.cmd_buffer, &rndr_begin_info,

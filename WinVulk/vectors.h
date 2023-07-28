@@ -65,6 +65,14 @@ Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
 }
 
+Vec3 vec3_add_4(Vec3 a, Vec3 b, Vec3 c, Vec3 d) {
+    return (Vec3){
+        a.x + b.x + c.x + d.x,
+        a.y + b.y + c.y + d.y,
+        a.z + b.z + c.z + d.z,
+    };
+}
+
 union Vec4 {
     float comps[4];
     struct {
@@ -239,5 +247,19 @@ Mat4 mat4_orthographic( Vec3 world_min, Vec3 world_max) {
     Mat4 mat2 = mat4_translate_3(-sum.x, -sum.y, -world_min.z);
 
     return mat4_multiply_mat(&mat1, &mat2);
+}
+
+//fov in radians
+//Gives a transformation matrix to apply, uses orthographic too in itself
+Mat4 mat4_perspective( Vec3 world_min, Vec3 world_max, float fovx) {
+    Mat4 ortho = mat4_orthographic(world_min, world_max);
+    float D = 1.f / tanf(fovx/2.f);
+    Mat4 temp = { {
+      { D, 0.f, 0.f, 0.f },
+      { 0.f, D, 0.f, 0.f },
+      { 0.f, 0.f, 1 + D, 1.f },
+      { 0.f, 0.f, 0.f, D },
+    } };
+    return mat4_multiply_mat(&temp, &ortho);
 }
 

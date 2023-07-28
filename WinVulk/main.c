@@ -11,6 +11,7 @@
 #include "render-stuff.h"
 #include "vectors.h"
 #include "window-stuff.h"
+#include "model_gen.h"
 
 
 void *VKAPI_PTR cb_allocation_fxn(void *user_data, size_t size,
@@ -56,6 +57,10 @@ struct WinProcData {
 };
 
 
+// Forward declare message handler from imgui_impl_win32.cpp
+extern LRESULT ImGui_ImplWin32_WndProcHandler(
+  HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
                           LPARAM lparam) {
 
@@ -79,7 +84,8 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
         pdata = (struct WinProcData *)GetWindowLongPtr(h_wnd,
                                                        GWLP_USERDATA);
     }
-
+    if (ImGui_ImplWin32_WndProcHandler(h_wnd, msg, wparam, lparam))
+        return 1;
     if (pdata) {
 
         if (msg == WM_DESTROY) {
@@ -170,12 +176,20 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
 
 #include "misc_tools.h"
 
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include "imgui/cimgui.h"
+
+#include "imgui/imgui/imgui_impl_vulkan.h"
+#include "imgui/imgui/imgui_impl_win32.h"
+
 #pragma warning(push, 3)
 #pragma warning(default : 4703 4700)
 int main(int argc, char *argv[]) {
 
     enum MainFailCodes {
         MAIN_FAIL_ALL = -0x7fff,
+
+        MAIN_FAIL_IMGUI_INIT,
 
         MAIN_FAIL_GRAPHICS_PIPELINE,
         MAIN_FAIL_GRAPHICS_PIPELINE_LAYOUT,
@@ -237,7 +251,7 @@ int main(int argc, char *argv[]) {
     struct WinProcData winproc_data = { 0 };
 
     if (!CreateWindowEx(0, wndclass_name, L"Window",
-                        WS_OVERLAPPEDWINDOW, 20, 10, 600, 600, NULL,
+                        WS_OVERLAPPEDWINDOW, 20, 10, 800, 700, NULL,
                         NULL, h_instance, &winproc_data))
         return_main_fail(MAIN_FAIL_WINDOW);
 
@@ -500,210 +514,26 @@ int main(int argc, char *argv[]) {
 
 
     // Now create the vertex buffers, that are constant across frames
-    struct Model square_model = { 0 };
+    struct Model model0 = { 0 };
     {
-        float r1_3 = sqrtf(1.f / 3.f);
-
-        const VertexInput major_vertex_sample_data[] = {
-            { { -50.f, -50.f, 50.f },
-              { -r1_3, -r1_3, -r1_3 },
-              { 0.f, 0.f } },
-            { { 50.f, 50.f, 50.f },
-              { r1_3, r1_3, -r1_3 },
-              { 1.f, 1.f } },
-            { { -50.f, 50.f, 50.f },
-              { -r1_3, r1_3, -r1_3 },
-              { 0.f, 1.f } },
-            { { 50.f, -50.f, 50.f },
-              { r1_3, -r1_3, -r1_3 },
-              { 1.f, 0.f } },
-            { { -50.f, -50.f, 150.f },
-              { -r1_3, -r1_3, r1_3 },
-              { 0.f, 0.f } },
-            { { 50.f, 50.f, 150.f },
-              { r1_3, r1_3, r1_3 },
-              { 1.f, 1.f } },
-            { { -50.f, 50.f, 150.f },
-              { -r1_3, r1_3, r1_3 },
-              { 0.f, 1.f } },
-            { { 50.f, -50.f, 150.f },
-              { r1_3, -r1_3, r1_3 },
-              { 1.f, 0.f } },
-        };
-
-        const uint16_t major_index_sample_data[] = {
-            0, 1, 2, 1, 0, 3, 4, 6, 5, 5, 7, 4, 1, 3, 7, 7, 5, 1,
-            4, 0, 2, 2, 6, 4, 2, 5, 6, 2, 1, 5, 0, 4, 7, 7, 3, 0,
-        };
-
-        // generate a cylinder ?
-        //  generate two cirles, / polygons, with center also as
-        //  vertices with radially outwards normals add +-z to those
-        //  renormalize the normals
-        //
-        //  for indices:
-        //  one triangle for each end faces' center and two edges
-        //  two triangles for each side
-        //
-
-        const int divs = 3;
-        int n_verts = divs * 4 + 2;
-        int n_indxs = 3 * 8 * divs;
-        const int radius = 200;
-        const int depth = 300;
-        const int bevel = 10;
-        const Vec3 front_col = {
-            .r = 1.0f,
-            .g = 1.0f,
-            .b = 0.0f,
-        };
-        const Vec3 back_col = {
-            .r = 0.0f,
-            .g = 0.0f,
-            .b = 1.0f,
-        };
-
-        size_t v_size = n_verts * sizeof(VertexInput);
-        size_t i_size = n_indxs * sizeof(uint16_t);
-
-        VertexInput *verts =
-          stack_allocate(&stk_allocr, &stk_offset, v_size, 4);
-        uint16_t *indxs =
-          stack_allocate(&stk_allocr, &stk_offset, i_size, 4);
-
-        int inx_count = 0;
-        for (int i = 0; i < divs; ++i) {
-
-            float nx = cosf(i * M_PI * 2.f / divs);
-            float ny = sinf(i * M_PI * 2.f / divs);
-            float fx = radius * nx;
-            float fy = radius * ny;
-            float bx = (radius - bevel) * nx;
-            float by = (radius - bevel) * ny;
-            {
-
-                // For front
-                verts[i + 0 * divs].pos = (Vec3){
-                    .x = bx, .y = by, .z = -(depth / 2 + bevel)
-                };
-                verts[i + 0 * divs].normal =
-                  (Vec3){ .x = 0.f, .y = 0.f, .z = -1.f };
-
-                // For bevel to front
-
-                verts[i + 1 * divs].pos =
-                  (Vec3){ .x = fx, .y = fy, .z = -(depth / 2) };
-                verts[i + 1 * divs].normal =
-                  (Vec3){ .x = nx, .y = ny, .z = 0.f };
-
-
-                // For bevel to back
-
-                verts[i + 2 * divs].pos =
-                  (Vec3){ .x = fx, .y = fy, .z = (depth / 2) };
-                verts[i + 2 * divs].normal =
-                  (Vec3){ .x = nx, .y = ny, .z = 0.f };
-
-
-                // For back
-
-                verts[i + 3 * divs].pos = (Vec3){
-                    .x = bx, .y = by, .z = (depth / 2 + bevel)
-                };
-                verts[i + 3 * divs].normal =
-                  (Vec3){ .x = 0.f, .y = 0.f, .z = 1.f };
-            }
-
-
-            // For front face
-            indxs[inx_count++] = i;
-            indxs[inx_count++] = (i + 1) % divs;
-            indxs[inx_count++] = n_verts - 2;
-
-            // For front bevel
-            indxs[inx_count++] = i;
-            indxs[inx_count++] = i + divs;
-            indxs[inx_count++] = (i + 1) % divs + divs;
-
-            indxs[inx_count++] = (i + 1) % divs + divs;
-            indxs[inx_count++] = (i + 1) % divs;
-            indxs[inx_count++] = i;
-
-
-            // For side
-            indxs[inx_count++] = i + divs;
-            indxs[inx_count++] = i + divs * 2;
-            indxs[inx_count++] = (i + 1) % divs + divs * 2;
-
-            indxs[inx_count++] = (i + 1) % divs + divs * 2;
-            indxs[inx_count++] = (i + 1) % divs + divs;
-            indxs[inx_count++] = i + divs;
-
-            // For back bevel
-            indxs[inx_count++] = i + divs * 2;
-            indxs[inx_count++] = i + divs * 3;
-            indxs[inx_count++] = (i + 1) % divs + divs * 3;
-
-            indxs[inx_count++] = (i + 1) % divs + divs * 3;
-            indxs[inx_count++] = (i + 1) % divs + divs * 2;
-            indxs[inx_count++] = i + divs * 2;
-
-            // For back face
-            indxs[inx_count++] = divs * 3 + (i + 1) % divs;
-            indxs[inx_count++] = divs * 3 + i;
-            indxs[inx_count++] = n_verts - 1;
-        }
-
-        verts[n_verts - 2].normal = (Vec3){ 0.f, 0.f, -1.f };
-        verts[n_verts - 1].normal = (Vec3){ 0.f, 0.f, 1.f };
-        verts[n_verts - 2].pos =
-          (Vec3){ 0.f, 0.f, -(bevel + depth / 2) };
-        verts[n_verts - 1].pos =
-          (Vec3){ 0.f, 0.f, (bevel + depth / 2) };
-
-
-        // Eh, make this cylinder a sphere
-
-        /*for(int i = 0; i < n_verts; ++i) {
-            verts[i].pos =
-              vec3_scale_fl(vec3_normalize(verts[i].pos), radius);
-
-            verts[i].normal = vec3_normalize(verts[i].pos);
-        }*/
-
-        LoadSphereOutput outs =
+        GenerateModelOutput outs =
           load_sphere_uv(ptr_stk_allocr, stk_offset, 6, 200);
 
-
-        n_verts = outs.vertex_count;
-        n_indxs = outs.index_count;
-        verts = outs.vertices;
-        indxs = outs.indices;
-
+        outs = load_cuboid_aa(ptr_stk_allocr, stk_offset,
+                              (Vec3){ 60.f, 50.f, 30.f });
 
         if (create_model(ptr_alloc_callbacks,
                          (CreateModelParam){
                            .device = device.device,
                            .p_allocr = &gpu_mem_allocr,
-                           .index_count = n_indxs,
-                           .indices_list = indxs,
-                           .vertex_count = n_verts,
-                           .vertices_list = verts,
+                           .index_count = outs.index_count,
+                           .indices_list = outs.indices,
+                           .vertex_count = outs.vertex_count,
+                           .vertices_list = outs.vertices,
                          },
-                         &square_model) < 0)
+                         &model0) < 0)
             return_main_fail(MAIN_FAIL_MODEL_LOAD);
 
-        // if (create_model(
-        //       ptr_alloc_callbacks,
-        //       (CreateModelParam){
-        //         .device = device.device,
-        //         .p_allocr = &gpu_mem_allocr,
-        //         .index_count = COUNT_OF(major_index_sample_data),
-        //         .indices_list = major_index_sample_data,
-        //         .vertex_count = COUNT_OF(major_vertex_sample_data),
-        //         .vertices_list = major_vertex_sample_data },
-        //       &square_model) < 0)
-        //     return_main_fail(MAIN_FAIL_MODEL_LOAD);
     }
 
 
@@ -876,6 +706,88 @@ int main(int argc, char *argv[]) {
 
     ShowWindow(winproc_data.win_handle, SW_SHOW);
 
+    //Setup imgui
+    ImGui_ImplVulkan_InitInfo imgui_init_info;
+    { 
+        igCreateContext(NULL); 
+    // set docking
+        ImGuiIO *ioptr = igGetIO();
+        ioptr->ConfigFlags |=
+          ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard
+                                              // Controls
+        // ioptr->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; //
+        // Enable Gamepad Controls
+
+        // Setup Platform/Renderer backends
+        ImGui_ImplWin32_Init(winproc_data.win_handle);
+
+        imgui_init_info = (ImGui_ImplVulkan_InitInfo){
+            .Instance = vk_instance,
+            .PhysicalDevice = device.phy_device,
+            .Device = device.device,
+            .QueueFamily = device.graphics_family_inx,
+            .Queue = device.graphics_queue,
+            .PipelineCache = VK_NULL_HANDLE,
+            .DescriptorPool = g_descriptor_pool,
+            .Subpass = 0,
+            .MinImageCount = swapchain_creation_infos.min_image_count,
+            .ImageCount = curr_swapchain_data.img_count,
+            .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+            .Allocator = ptr_alloc_callbacks,
+            .CheckVkResultFn = NULL,
+        };
+        ImGui_ImplVulkan_Init(&imgui_init_info, render_pass);
+
+        igStyleColorsDark(NULL);
+
+        // Upload Fonts
+        // Use any command queue
+        VkCommandPool command_pool = rndr_cmd_pool;
+        VkCommandBuffer command_buffer =
+          rndr_cmd_buffers[curr_frame_in_flight];
+        VkResult err;
+        err = vkResetCommandPool(device.device, command_pool, 0);
+        
+        if (err != VK_SUCCESS)
+            return_main_fail(MAIN_FAIL_IMGUI_INIT);
+
+        VkCommandBufferBeginInfo begin_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        err = vkBeginCommandBuffer(command_buffer, &begin_info);
+
+        if (err != VK_SUCCESS)
+            return_main_fail(MAIN_FAIL_IMGUI_INIT);
+
+        ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
+
+        VkSubmitInfo end_info = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &command_buffer,
+        };
+        err = vkEndCommandBuffer(command_buffer);
+
+        if (err != VK_SUCCESS)
+            return_main_fail(MAIN_FAIL_IMGUI_INIT);
+
+        err = vkQueueSubmit(device.graphics_queue, 1, &end_info,
+                            VK_NULL_HANDLE);
+
+        if (err != VK_SUCCESS)
+            return_main_fail(MAIN_FAIL_IMGUI_INIT);
+
+        err = vkDeviceWaitIdle(device.device);
+
+        if (err != VK_SUCCESS)
+            return_main_fail(MAIN_FAIL_IMGUI_INIT);
+
+        ImGui_ImplVulkan_DestroyFontUploadObjects();
+
+    }
+
+
     // Miscellaneous data + data to transform models
     Vec3 sq_rotate = { 0 };
     Vec3 sq_translate = { 0 };
@@ -888,9 +800,12 @@ int main(int argc, char *argv[]) {
 
     Vec3 world_min = { -300, -300, -400 };
     Vec3 world_max = { 300, 300, 400 };
+    float fov = M_PI / 6.f;
 
-    Vec3 light = { 0.f, 400.f, -400.f };
-    // light = vec3_normalize(light);
+    Vec3 light = { 0.f, 0, -800.f };
+    Vec3 light_col = { 1.f, 1.f, 1.f };
+    Vec3 model_col = { 0.5f, 0.5f, 0.5f };
+    Vec3 clear_col = { 0.1f, 0.2f, 0.4f };
     MSG msg = { 0 };
     while (msg.message != WM_QUIT) {
         // Setup miscelannous data if needed
@@ -910,6 +825,19 @@ int main(int argc, char *argv[]) {
             DispatchMessage(&msg);
         }
         {
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            igNewFrame();
+            igColorEdit3("Model Color", model_col.comps, 0);
+            igColorEdit3("Light Color", light_col.comps, 0);
+            igSliderFloat3("Light Position", light.comps, -800.f,
+                           800.f, NULL, 0);
+            igSliderFloat("FOV : ", &fov, M_PI / 18.f, M_PI / 2.f,
+                          NULL, 0);
+            igRender();
+
+        }
+        {
 
             uint32_t img_inx = 0;
             {
@@ -926,7 +854,10 @@ int main(int argc, char *argv[]) {
                     .present_done_semaphore =
                       present_done_semaphores[curr_frame_in_flight],
                     .p_img_inx = &img_inx,
-
+                    .clear_value =
+                      (VkClearValue){
+                        .color = { clear_col.r, clear_col.g,
+                                   clear_col.b, 1.0f } },
                 };
                 int res = begin_rendering_operations(begin_param);
                 RecreateSwapchainParam recreation_param = {
@@ -967,6 +898,7 @@ int main(int argc, char *argv[]) {
                   &(VkRect2D){ .offset = { .x = 0, .y = 0 },
                                .extent = swapchain_extent });
 
+
                 vkCmdBindPipeline(
                   rndr_cmd_buffers[curr_frame_in_flight],
                   VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
@@ -978,7 +910,17 @@ int main(int argc, char *argv[]) {
             des_mats.proj = (Mat4)MAT4_IDENTITIY;
 
             des_mats.proj = mat4_orthographic(world_min, world_max);
-            des_lights.light_col = (Vec4){ 1.0f, 1.0f, 1.0f, 1.0f };
+
+            des_mats.proj =
+              mat4_perspective(world_min, world_max, fov);
+
+            Vec4 test_min = mat4_multiply_vec(
+              &des_mats.proj,
+              (Vec4){ world_max.x, world_max.y, world_max.z, 1.f });
+
+            test_min = vec4_scale_fl(test_min, 1.f / test_min.w);
+
+            des_lights.light_col = vec4_from_vec3(light_col, 1.0f);
             des_lights.light_src = vec4_from_vec3(light, 1.f);
 
             *(struct DescriptorMats
@@ -1013,7 +955,7 @@ int main(int argc, char *argv[]) {
             pushes.vert_consts.model_mat =
               mat4_multiply_mat_3(&translate, &rotate, &scale);
             pushes.frag_consts.model_col =
-              (Vec4){ 1.0f, 0.0f, 0.8f, 1.0f };
+              vec4_from_vec3(model_col, 1.0f);
 
             for(int i = 0; i < push_range_count; ++i) {
                 vkCmdPushConstants(
@@ -1023,10 +965,16 @@ int main(int argc, char *argv[]) {
                   (uint8_t *)&pushes + push_ranges[i].offset);
             }
 
-            submit_model_draw(&square_model,
+            submit_model_draw(&model0,
                               rndr_cmd_buffers[curr_frame_in_flight]);
 
             {
+
+                ImDrawData *draw_data = igGetDrawData();
+                ImGui_ImplVulkan_RenderDrawData(
+                  draw_data, rndr_cmd_buffers[curr_frame_in_flight],
+                  VK_NULL_HANDLE);
+
                 EndRenderingOperationsParam end_param = {
                     .device = device.device,
                     .cmd_buffer =
@@ -1084,6 +1032,13 @@ cleanup_phase:
         // label
         err_code = 0;
     case MAIN_FAIL_OK:
+
+        
+        ImGui_ImplWin32_Shutdown();
+        ImGui_ImplVulkan_Shutdown();
+        igDestroyContext(NULL);
+        err_code = 0;
+    case MAIN_FAIL_IMGUI_INIT:
 
 
         clear_graphics_pipeline(ptr_alloc_callbacks,
@@ -1150,7 +1105,7 @@ cleanup_phase:
         err_code = 0;
     case MAIN_FAIL_MODEL_LOAD:
         clear_model(ptr_alloc_callbacks, device.device,
-                    &square_model);
+                    &model0);
 
         err_code = 0;
     case MAIN_FAIL_GPU_ALLOCR:

@@ -644,7 +644,9 @@ int create_device(StackAllocator *stk_allocr,
         queue_create_infos[1].queueFamilyIndex = present_family;
     }
 
-    VkPhysicalDeviceFeatures device_features = { 0 };
+    VkPhysicalDeviceFeatures device_features = {
+        .fillModeNonSolid = VK_TRUE,
+    };
 
     // When required, create the device features, layers check and
     // enable code here

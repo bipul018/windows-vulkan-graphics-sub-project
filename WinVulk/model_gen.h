@@ -271,7 +271,7 @@ GenerateModelOutput load_cuboid_aa(StackAllocator *stk_allocr,
 GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_offset,int codepoint, Vec3 extrude) {
     GenerateModelOutput model = { 0 };
     
-    init_font_file("kokila.ttf");
+    init_font_file("Sanskr.ttf");
     
     //Allocate for CurveNode
     struct AddCurveOutput letter_info =

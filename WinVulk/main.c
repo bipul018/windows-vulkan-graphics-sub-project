@@ -193,6 +193,7 @@ int main(int argc, char *argv[]) {
 
         MAIN_FAIL_IMGUI_INIT,
 
+        MAIN_FAIL_GRAPHICS_MESH_PIPELINE,
         MAIN_FAIL_GRAPHICS_PIPELINE,
         MAIN_FAIL_GRAPHICS_PIPELINE_LAYOUT,
 
@@ -252,7 +253,7 @@ int main(int argc, char *argv[]) {
 
     struct WinProcData winproc_data = { 0 };
 
-    if (!CreateWindowEx(0, wndclass_name, L"Window",
+    if (!CreateWindowEx(0, wndclass_name, L"3D Mesh From 2D Vectors",
                         WS_OVERLAPPEDWINDOW, 20, 10, 800, 700, NULL,
                         NULL, h_instance, &winproc_data))
         return_main_fail(MAIN_FAIL_WINDOW);
@@ -665,6 +666,8 @@ int main(int argc, char *argv[]) {
             return_main_fail(MAIN_FAIL_GRAPHICS_PIPELINE_LAYOUT);
     }
 
+
+
     // Now create graphics pipeline
     VkPipeline graphics_pipeline = VK_NULL_HANDLE;
     {
@@ -705,6 +708,46 @@ int main(int argc, char *argv[]) {
             return_main_fail(MAIN_FAIL_GRAPHICS_PIPELINE);
     }
 
+        // Now create graphics pipeline for drawing meshes
+    VkPipeline graphics_mesh_pipeline = VK_NULL_HANDLE;
+    {
+        GraphicsPipelineCreationInfos create_infos =
+          default_graphics_pipeline_creation_infos();
+
+        create_infos.vertex_input_state
+          .vertexAttributeDescriptionCount = COUNT_OF(attrib_descs),
+          create_infos.vertex_input_state
+            .pVertexAttributeDescriptions = attrib_descs;
+        create_infos.vertex_input_state
+          .vertexBindingDescriptionCount = COUNT_OF(binding_descs);
+        create_infos.vertex_input_state.pVertexBindingDescriptions =
+          binding_descs;
+        create_infos.rasterization_state.polygonMode =
+          VK_POLYGON_MODE_LINE;
+        /*
+          VK_POLYGON_MODE_FILL;
+          VK_POLYGON_MODE_POINT;
+        */
+        create_infos.rasterization_state.cullMode =
+          VK_CULL_MODE_BACK_BIT;
+        /*
+        create_infos.rasterization_state.cullMode = VK_CULL_MODE_NONE;
+        */
+        err_code = create_graphics_pipeline(
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
+          (CreateGraphicsPipelineParam){
+            .create_infos = create_infos,
+            .compatible_render_pass = render_pass,
+            .device = device.device,
+            .pipe_layout = graphics_pipeline_layout,
+            .subpass_index = 0,
+            .vert_shader_file = vert_file_name,
+            .frag_shader_file = frag_file_name,
+            .p_pipeline = &graphics_mesh_pipeline });
+        if (err_code < 0)
+            return_main_fail(MAIN_FAIL_GRAPHICS_MESH_PIPELINE);
+    }
+
     ShowWindow(winproc_data.win_handle, SW_SHOW);
 
     // Setup imgui
@@ -718,6 +761,8 @@ int main(int argc, char *argv[]) {
                                               // Controls
         // ioptr->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; //
         // Enable Gamepad Controls
+        
+        
 
         // Setup Platform/Renderer backends
         ImGui_ImplWin32_Init(winproc_data.win_handle);
@@ -793,7 +838,7 @@ int main(int argc, char *argv[]) {
     struct Model sphere_model = { 0 };
     struct Model cube_model = { 0 };
 
-    WCHAR letters[26 + 3 ][2] = { 0 };
+    WCHAR letters[26 + 7 ][2] = { 0 };
     // 26 letters , both cases and 10 digits
     for (int i = 0; i < 26; ++i)
         letters[i][0] = i + L'A';
@@ -801,9 +846,13 @@ int main(int argc, char *argv[]) {
     //    letters[i + 26][0] = i + 'a';
     //for (int i = 0; i < 10; ++i)
     //    letters[i + 26 * 2][0] = i + '0';
-    letters[26][0] = L'&';
-    letters[27][0] = L'ि';
-    letters[28][0] = L'ब';
+    letters[26][0] = L'ध';
+    letters[27][0] = L'न';
+    letters[28][0] = L'्';
+    letters[29][0] = L'य';
+    letters[30][0] = L'व';
+    letters[31][0] = L'ा';
+    letters[32][0] = L'द';
 
     struct Model letter_models[COUNT_OF(letters) ] = { 0 };
 
@@ -890,8 +939,10 @@ int main(int argc, char *argv[]) {
         .color = (Vec3){ 0.4f, 0.8f, 0.2f },
     };
     struct Object3D scene_objs[100];
+    bool object_solid_mode[100];
     int obj_count = 0;
     int active_obj = -1;
+
 
     Vec3 active_rotate_deg = { 0 };
     Vec3 active_translate = { 0 };
@@ -944,6 +995,7 @@ int main(int argc, char *argv[]) {
                 igText("Current object index : %d ", active_obj);
                 if (igButton("Create Sphere", (ImVec2){ 0 })) {
                     active_obj = obj_count++;
+                    object_solid_mode[active_obj] = true;
                     scene_objs[active_obj] = (struct Object3D){
                         .ptr_model = &sphere_model,
                         .color = (Vec3){ 1.0f, 1.0f, 1.0f },
@@ -955,6 +1007,7 @@ int main(int argc, char *argv[]) {
                 }
                 if (igButton("Create Cube", (ImVec2){ 0 })) {
                     active_obj = obj_count++;
+                    object_solid_mode[active_obj] = true;
                     scene_objs[active_obj] = (struct Object3D){
                         .ptr_model = &cube_model,
                         .color = (Vec3){ 1.f, 1.f, 1.f },
@@ -964,20 +1017,22 @@ int main(int argc, char *argv[]) {
                     };
                     active_changed = true;
                 }
-
+                
                 if (igBeginCombo("Create Letter", "Choose Letter",
                                  0)) {
+
 
                     for (size_t i = 0; i < COUNT_OF(letters); ++i) {
                         if (igSelectable_Bool(letters[i], false, 0,
                                               (ImVec2){ 0 })) {
                             
                             active_obj = obj_count++;
+                            object_solid_mode[active_obj] = true;
                             scene_objs[active_obj] =
                               (struct Object3D){
                                   .ptr_model = letter_models + i,
                                   .color = (Vec3){ 1.f, 1.f, 1.f },
-                                  .rotate = (Vec3){ 0 },
+                                  .rotate = (Vec3){ M_PI },
                                   .translate = (Vec3){ 0 },
                                   .scale = (Vec3){ 1.f, 1.f, 1.f },
                               };
@@ -999,6 +1054,12 @@ int main(int argc, char *argv[]) {
                     active_changed = true;
                 }
 
+                igEnd();
+            }
+
+            {
+                igBegin("Current Model", &true_val, 0);
+
                 igColorEdit3("Object Color", active_object_col.comps,
                              0);
                 igInputFloat3("Object Position",
@@ -1007,6 +1068,10 @@ int main(int argc, char *argv[]) {
                               active_rotate_deg.comps, NULL, 0);
                 igInputFloat("Object scale factor", &active_scale_pow,
                              1 / 300.f, 1 / 150.f, "%.3f", 0);
+                igSelectable_BoolPtr("Show Mesh",
+                                     object_solid_mode + active_obj,
+                                     0, (ImVec2){ 0 });
+
                 igEnd();
             }
 
@@ -1154,9 +1219,12 @@ int main(int argc, char *argv[]) {
                   NULL);
             }
 
+            bool is_solid_pipeline = true;
+
             PushConst pushes;
 
             pushes = object_process_push_const(gnd_obj);
+
 
             for (int i = 0; i < push_range_count; ++i) {
                 vkCmdPushConstants(
@@ -1165,7 +1233,6 @@ int main(int argc, char *argv[]) {
                   push_ranges[i].offset, push_ranges[i].size,
                   (uint8_t *)&pushes + push_ranges[i].offset);
             }
-
             submit_model_draw(gnd_obj.ptr_model,
                               rndr_cmd_buffers[curr_frame_in_flight]);
 
@@ -1181,10 +1248,20 @@ int main(int argc, char *argv[]) {
                       (uint8_t *)&pushes + push_ranges[i].offset);
                 }
 
+                if (is_solid_pipeline != object_solid_mode[i]) {
+                    is_solid_pipeline = object_solid_mode[i];
+                    vkCmdBindPipeline(
+                      rndr_cmd_buffers[curr_frame_in_flight],
+                      VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      (is_solid_pipeline) ? (graphics_pipeline)
+                                          : (graphics_mesh_pipeline));
+                }
+
                 submit_model_draw(
                   scene_objs[i].ptr_model,
                   rndr_cmd_buffers[curr_frame_in_flight]);
             }
+
 
             {
 
@@ -1269,6 +1346,14 @@ cleanup_phase:
         err_code = 0;
     case MAIN_FAIL_IMGUI_INIT:
 
+
+        clear_graphics_pipeline(ptr_alloc_callbacks,
+                                (ClearGraphicsPipelineParam){
+                                  .device = device.device,
+                                  .p_pipeline = &graphics_mesh_pipeline },
+                                err_code);
+        err_code = 0;
+    case MAIN_FAIL_GRAPHICS_MESH_PIPELINE:
 
         clear_graphics_pipeline(ptr_alloc_callbacks,
                                 (ClearGraphicsPipelineParam){

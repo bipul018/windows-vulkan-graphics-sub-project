@@ -272,7 +272,7 @@ struct AddCurveOutput add_font_verts(StackAllocator *stk_allocr,
     size_t num_line_points = 0; // No duplicates
 
     float beizer_error = 0.1f;
-    float beizer_steps = 4.f;
+    float beizer_steps = 34.f;
 
     //Also apply some transformations if needed
     for (size_t i = 0; i < num_verts; ++i) {

@@ -1,13 +1,18 @@
 # windows-vulkan-graphics-sub-project
 This is a pratice project for windows (win32) - vulkan and for graphics project of 5th semester.
 
+
 Dependencies required:
-Windows OS
+
+Windows OS 
+
 header only dependency : stb_truetype : https://github.com/nothings/stb.git  
+
 Full library dependency : Vulkan SDK : https://vulkan.lunarg.com/sdk/home#windows
 
 To setup vulkan, install the sdk from above link .
 Also setup the IDE to point at header file location of stb_truetype.h and vulkan headers to run.
+If you have Visual Studio, then just open the .sln file. Then setup the Vulkan library directory, Vulkan headers director, and stb_truetype.h directory in the project properties.
 
 Screenshots:
 ![meshview](https://github.com/bipul018/windows-vulkan-graphics-sub-project/assets/83596423/e835b554-32a1-489f-a3c2-2a6155e47481)
@@ -17,5 +22,11 @@ Screenshots:
 Running the exe:
 
 To run the exe after compilation make sure to have the following at the same folder
+
 1> Any font file {.ttf} at the WinVulk folder
+
 2> shaders folder
+
+A sample .exe is situated at \WinVulk\WinVulk.exe
+
+This .exe may not be updated, if needed so then compile the source code to full

@@ -1,4 +1,4 @@
-#include <Windows.h>
+﻿#include <Windows.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -8,10 +8,10 @@
 
 #include "common-stuff.h"
 #include "device-mem-stuff.h"
+#include "model_gen.h"
 #include "render-stuff.h"
 #include "vectors.h"
 #include "window-stuff.h"
-#include "model_gen.h"
 
 
 void *VKAPI_PTR cb_allocation_fxn(void *user_data, size_t size,
@@ -47,7 +47,6 @@ struct WinProcData {
     HANDLE win_handle;
 
     // Data that are UI controlled
-
     // Controlled by qweasd keys
     Vec3 *qweasd;
     // Controlled by uiojkl keys
@@ -58,8 +57,9 @@ struct WinProcData {
 
 
 // Forward declare message handler from imgui_impl_win32.cpp
-extern LRESULT ImGui_ImplWin32_WndProcHandler(
-  HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg,
+                                              WPARAM wParam,
+                                              LPARAM lParam);
 
 LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
                           LPARAM lparam) {
@@ -189,6 +189,8 @@ int main(int argc, char *argv[]) {
     enum MainFailCodes {
         MAIN_FAIL_ALL = -0x7fff,
 
+        MAIN_FAIL_MODEL_LOAD,
+
         MAIN_FAIL_IMGUI_INIT,
 
         MAIN_FAIL_GRAPHICS_PIPELINE,
@@ -201,7 +203,6 @@ int main(int argc, char *argv[]) {
         MAIN_FAIL_DESCRIPTOR_POOL,
         MAIN_FAIL_DESCRIPTOR_LAYOUT,
 
-        MAIN_FAIL_MODEL_LOAD,
 
         MAIN_FAIL_GPU_ALLOCR,
 
@@ -210,6 +211,7 @@ int main(int argc, char *argv[]) {
         MAIN_FAIL_FRAME_SEMAPHORES,
         MAIN_FAIL_FRAME_FENCES,
         MAIN_FAIL_FRAMEBUFFERS,
+        MAIN_FAIL_DEPTHBUFFERS,
         MAIN_FAIL_SWAPCHAIN,
         MAIN_FAIL_RENDER_PASS,
         MAIN_FAIL_DEVICE,
@@ -358,6 +360,9 @@ int main(int argc, char *argv[]) {
 
         if (err_code < 0)
             return_main_fail(MAIN_FAIL_DEVICE);
+
+        // For now hardcode the depth stencil format
+        device.depth_stencil_format = VK_FORMAT_D32_SFLOAT;
     }
 
     // Create Render Pass
@@ -366,6 +371,7 @@ int main(int argc, char *argv[]) {
         CreateRenderPassParam param = {
             .device = device.device,
             .img_format = device.img_format.format,
+            .depth_stencil_format = device.depth_stencil_format,
             .p_render_pass = &render_pass,
         };
         err_code = create_render_pass(ptr_stk_allocr, stk_offset,
@@ -386,6 +392,7 @@ int main(int argc, char *argv[]) {
         .graphics_family_inx = device.graphics_family_inx,
         .present_family_inx = device.present_family_inx,
 
+        .depth_stencil_format = device.depth_stencil_format,
         .surface_format = device.img_format,
         .img_pre_transform = device.transform_flags,
         .min_image_count = device.min_img_count,
@@ -407,6 +414,24 @@ int main(int argc, char *argv[]) {
             return_main_fail(MAIN_FAIL_SWAPCHAIN);
     }
 
+    // Create depth image and image views
+    {
+        err_code = create_depthbuffers(
+          ptr_stk_allocr, stk_offset, ptr_alloc_callbacks,
+          (CreateDepthbuffersParam){
+            .device = device.device,
+            .phy_device = device.phy_device,
+            .depth_count = curr_swapchain_data.img_count,
+            .img_extent = swapchain_extent,
+            .depth_img_format = device.depth_stencil_format,
+            .p_depth_buffers = &curr_swapchain_data.depth_imgs,
+            .p_depth_buffer_views = &curr_swapchain_data.depth_views,
+            .p_depth_memory = &curr_swapchain_data.device_mem,
+          });
+        if (err_code < 0)
+            return_main_fail(MAIN_FAIL_DEPTHBUFFERS);
+    }
+
     // Create framebuffers on swapchain
     {
         err_code = create_framebuffers(
@@ -417,6 +442,7 @@ int main(int argc, char *argv[]) {
             .framebuffer_count = curr_swapchain_data.img_count,
             .framebuffer_extent = swapchain_extent,
             .img_views = curr_swapchain_data.img_views,
+            .depth_views = curr_swapchain_data.depth_views,
             .p_framebuffers = &curr_swapchain_data.framebuffers,
           });
         if (err_code < 0)
@@ -512,31 +538,6 @@ int main(int argc, char *argv[]) {
             return_main_fail(MAIN_FAIL_GPU_ALLOCR);
     }
 
-
-    // Now create the vertex buffers, that are constant across frames
-    struct Model model0 = { 0 };
-    {
-        GenerateModelOutput outs =
-          load_sphere_uv(ptr_stk_allocr, stk_offset, 6, 200);
-
-        outs = load_cuboid_aa(ptr_stk_allocr, stk_offset,
-                              (Vec3){ 60.f, 50.f, 30.f });
-
-        if (create_model(ptr_alloc_callbacks,
-                         (CreateModelParam){
-                           .device = device.device,
-                           .p_allocr = &gpu_mem_allocr,
-                           .index_count = outs.index_count,
-                           .indices_list = outs.indices,
-                           .vertex_count = outs.vertex_count,
-                           .vertices_list = outs.vertices,
-                         },
-                         &model0) < 0)
-            return_main_fail(MAIN_FAIL_MODEL_LOAD);
-
-    }
-
-
     // Create descriptor layouts
     VkDescriptorSetLayout g_matrix_layout;
     VkDescriptorSetLayout g_lights_layout;
@@ -569,9 +570,10 @@ int main(int argc, char *argv[]) {
     GpuAllocrAllocatedBuffer *g_matrix_uniform_buffers = NULL;
     GpuAllocrAllocatedBuffer *g_lights_uniform_buffers = NULL;
     {
-        GpuAllocrAllocatedBuffer * p_buffs = stack_allocate(
+        GpuAllocrAllocatedBuffer *p_buffs = stack_allocate(
           ptr_stk_allocr, &stk_offset,
-          sizeof(GpuAllocrAllocatedBuffer) * 2 * max_frames_in_flight, 1);
+          sizeof(GpuAllocrAllocatedBuffer) * 2 * max_frames_in_flight,
+          1);
         if (!p_buffs)
             return_main_fail(MAIN_FAIL_DESCRIPTOR_BUFFER_MEM_ALLOC);
         ZeroMemory(p_buffs,
@@ -606,7 +608,7 @@ int main(int argc, char *argv[]) {
     VkDescriptorSet *g_matrix_descriptor_sets = NULL;
     VkDescriptorSet *g_lights_descriptor_sets = NULL;
     {
-        VkDescriptorSet * ptr  = stack_allocate(
+        VkDescriptorSet *ptr = stack_allocate(
           ptr_stk_allocr, &stk_offset,
           sizeof(VkDescriptorSet) * max_frames_in_flight * 2,
           sizeof(uintptr_t));
@@ -616,7 +618,6 @@ int main(int argc, char *argv[]) {
 
         g_matrix_descriptor_sets = ptr;
         g_lights_descriptor_sets = ptr + max_frames_in_flight;
-
     }
     {
 
@@ -706,11 +707,11 @@ int main(int argc, char *argv[]) {
 
     ShowWindow(winproc_data.win_handle, SW_SHOW);
 
-    //Setup imgui
+    // Setup imgui
     ImGui_ImplVulkan_InitInfo imgui_init_info;
-    { 
-        igCreateContext(NULL); 
-    // set docking
+    {
+        igCreateContext(NULL);
+        // set docking
         ImGuiIO *ioptr = igGetIO();
         ioptr->ConfigFlags |=
           ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard
@@ -747,7 +748,7 @@ int main(int argc, char *argv[]) {
           rndr_cmd_buffers[curr_frame_in_flight];
         VkResult err;
         err = vkResetCommandPool(device.device, command_pool, 0);
-        
+
         if (err != VK_SUCCESS)
             return_main_fail(MAIN_FAIL_IMGUI_INIT);
 
@@ -784,58 +785,268 @@ int main(int argc, char *argv[]) {
             return_main_fail(MAIN_FAIL_IMGUI_INIT);
 
         ImGui_ImplVulkan_DestroyFontUploadObjects();
-
     }
 
 
-    // Miscellaneous data + data to transform models
-    Vec3 sq_rotate = { 0 };
-    Vec3 sq_translate = { 0 };
-    Vec3 sq_scale = { 1.f, 1.f, 1.f };
-    float sq_scale_pow = 0;
+    // Now create the vertex buffers, that are constant across frames
+    struct Model ground_model = { 0 };
+    struct Model sphere_model = { 0 };
+    struct Model cube_model = { 0 };
 
-    winproc_data.qweasd = &sq_translate;
-    winproc_data.uiojkl = &sq_rotate;
-    winproc_data.scroll = &sq_scale_pow;
+    WCHAR letters[26 + 3 ][2] = { 0 };
+    // 26 letters , both cases and 10 digits
+    for (int i = 0; i < 26; ++i)
+        letters[i][0] = i + L'A';
+    //for (int i = 0; i < 26; ++i)
+    //    letters[i + 26][0] = i + 'a';
+    //for (int i = 0; i < 10; ++i)
+    //    letters[i + 26 * 2][0] = i + '0';
+    letters[26][0] = L'&';
+    letters[27][0] = L'ि';
+    letters[28][0] = L'ब';
+
+    struct Model letter_models[COUNT_OF(letters) ] = { 0 };
+
+
+    {
+        GenerateModelOutput out;
+        out = load_cuboid_aa(ptr_stk_allocr, stk_offset,
+                             (Vec3){ 1000.f, 0.f, 1000.f });
+        if (!out.vertices || !out.indices)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        if (create_model(ptr_alloc_callbacks,
+                         (CreateModelParam){
+                           .device = device.device,
+                           .p_allocr = &gpu_mem_allocr,
+                           .index_count = out.index_count,
+                           .indices_list = out.indices,
+                           .vertex_count = out.vertex_count,
+                           .vertices_list = out.vertices,
+                         },
+                         &ground_model) < 0)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        out = load_cuboid_aa(ptr_stk_allocr, stk_offset,
+                             (Vec3){ 100.f, 100.f, 100.f });
+        if (!out.vertices || !out.indices)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        if (create_model(ptr_alloc_callbacks,
+                         (CreateModelParam){
+                           .device = device.device,
+                           .p_allocr = &gpu_mem_allocr,
+                           .index_count = out.index_count,
+                           .indices_list = out.indices,
+                           .vertex_count = out.vertex_count,
+                           .vertices_list = out.vertices,
+                         },
+                         &cube_model) < 0)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        out = load_sphere_uv(ptr_stk_allocr, stk_offset, 10, 50);
+        if (!out.vertices || !out.indices)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        if (create_model(ptr_alloc_callbacks,
+                         (CreateModelParam){
+                           .device = device.device,
+                           .p_allocr = &gpu_mem_allocr,
+                           .index_count = out.index_count,
+                           .indices_list = out.indices,
+                           .vertex_count = out.vertex_count,
+                           .vertices_list = out.vertices,
+                         },
+                         &sphere_model) < 0)
+            return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+        for (size_t i = 0; i < COUNT_OF(letter_models); ++i) {
+            out = load_text_character(ptr_stk_allocr, stk_offset,
+                                      letters[i][0],
+                                      (Vec3){ 0.f, 0.f, 200.f });
+            if (!out.vertices || !out.indices)
+                return_main_fail(MAIN_FAIL_MODEL_LOAD);
+
+            if (create_model(ptr_alloc_callbacks,
+                             (CreateModelParam){
+                               .device = device.device,
+                               .p_allocr = &gpu_mem_allocr,
+                               .index_count = out.index_count,
+                               .indices_list = out.indices,
+                               .vertex_count = out.vertex_count,
+                               .vertices_list = out.vertices,
+                             },
+                             letter_models + i) < 0)
+                return_main_fail(MAIN_FAIL_MODEL_LOAD);
+        }
+    }
+
+    // Miscellaneous data + object data
+    struct Object3D gnd_obj = {
+        .ptr_model = &ground_model,
+        .translate = (Vec3){ 0.f, 300.f, 0.f },
+        .rotate = (Vec3){ 0 },
+        .scale = (Vec3){ 10.f, 1.f, 10.f },
+        .color = (Vec3){ 0.4f, 0.8f, 0.2f },
+    };
+    struct Object3D scene_objs[100];
+    int obj_count = 0;
+    int active_obj = -1;
+
+    Vec3 active_rotate_deg = { 0 };
+    Vec3 active_translate = { 0 };
+    Vec3 active_scale = { 1.f, 1.f, 1.f };
+    float active_scale_pow = 0;
+    Vec3 active_object_col = { 0.5f, 0.5f, 0.5f };
+
+    winproc_data.qweasd = &active_translate;
+    winproc_data.uiojkl = &active_rotate_deg;
+    winproc_data.scroll = &active_scale_pow;
 
     Vec3 world_min = { -300, -300, -400 };
     Vec3 world_max = { 300, 300, 400 };
-    float fov = M_PI / 6.f;
+    float fov = M_PI / 3.f;
 
-    Vec3 light = { 0.f, 0, -800.f };
+    Vec3 light_pos = { 0.f, 0, -800.f };
     Vec3 light_col = { 1.f, 1.f, 1.f };
-    Vec3 model_col = { 0.5f, 0.5f, 0.5f };
     Vec3 clear_col = { 0.1f, 0.2f, 0.4f };
+
     MSG msg = { 0 };
     while (msg.message != WM_QUIT) {
-        // Setup miscelannous data if needed
-        {
-            sq_scale.x = sq_scale.y = sq_scale.z =
-              powf(1.1f, sq_scale_pow);
-            world_min.x = -winproc_data.width / 2.f;
-            world_min.y = -winproc_data.height / 2.f;
-
-            world_max.x = winproc_data.width / 2.f;
-            world_max.y = winproc_data.height / 2.f;
-        }
 
 
         while ((PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) > 0)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+        // Setup miscelannous data if needed
         {
             ImGui_ImplVulkan_NewFrame();
             ImGui_ImplWin32_NewFrame();
             igNewFrame();
-            igColorEdit3("Model Color", model_col.comps, 0);
-            igColorEdit3("Light Color", light_col.comps, 0);
-            igSliderFloat3("Light Position", light.comps, -800.f,
-                           800.f, NULL, 0);
-            igSliderFloat("FOV : ", &fov, M_PI / 18.f, M_PI / 2.f,
-                          NULL, 0);
-            igRender();
 
+            active_scale.x = active_scale.y = active_scale.z =
+              powf(1.1f, active_scale_pow);
+
+            world_min.x = -winproc_data.width / 2.f;
+            world_min.y = -winproc_data.height / 2.f;
+
+            world_max.x = winproc_data.width / 2.f;
+            world_max.y = winproc_data.height / 2.f;
+            gnd_obj.translate.y = world_max.y;
+
+            bool true_val = true;
+            bool active_changed = false;
+
+            {
+                igBegin("3D Object Info", &true_val, 0);
+                igText("Total objects in scene : %d ", obj_count);
+                igText("Current object index : %d ", active_obj);
+                if (igButton("Create Sphere", (ImVec2){ 0 })) {
+                    active_obj = obj_count++;
+                    scene_objs[active_obj] = (struct Object3D){
+                        .ptr_model = &sphere_model,
+                        .color = (Vec3){ 1.0f, 1.0f, 1.0f },
+                        .rotate = (Vec3){ 0 },
+                        .scale = (Vec3){ 1.0f, 1.0f, 1.0f },
+                        .translate = (Vec3){ 0 },
+                    };
+                    active_changed = true;
+                }
+                if (igButton("Create Cube", (ImVec2){ 0 })) {
+                    active_obj = obj_count++;
+                    scene_objs[active_obj] = (struct Object3D){
+                        .ptr_model = &cube_model,
+                        .color = (Vec3){ 1.f, 1.f, 1.f },
+                        .rotate = (Vec3){ 0 },
+                        .translate = (Vec3){ 0 },
+                        .scale = (Vec3){ 1.f, 1.f, 1.f },
+                    };
+                    active_changed = true;
+                }
+
+                if (igBeginCombo("Create Letter", "Choose Letter",
+                                 0)) {
+
+                    for (size_t i = 0; i < COUNT_OF(letters); ++i) {
+                        if (igSelectable_Bool(letters[i], false, 0,
+                                              (ImVec2){ 0 })) {
+                            
+                            active_obj = obj_count++;
+                            scene_objs[active_obj] =
+                              (struct Object3D){
+                                  .ptr_model = letter_models + i,
+                                  .color = (Vec3){ 1.f, 1.f, 1.f },
+                                  .rotate = (Vec3){ 0 },
+                                  .translate = (Vec3){ 0 },
+                                  .scale = (Vec3){ 1.f, 1.f, 1.f },
+                              };
+                            active_changed = true;
+                        }
+                    }
+
+                    igEndCombo();
+                }
+                
+
+                if (igButton("Next Object", (ImVec2){ 0 })) {
+                    active_obj = (active_obj + 1) % obj_count;
+                    active_changed = true;
+                }
+                if (igButton("Previous Object", (ImVec2){ 0 })) {
+                    active_obj = (active_obj - 1);
+                    active_obj = (active_obj < 0) ? 0 : active_obj;
+                    active_changed = true;
+                }
+
+                igColorEdit3("Object Color", active_object_col.comps,
+                             0);
+                igInputFloat3("Object Position",
+                              active_translate.comps, NULL, 0);
+                igInputFloat3("Object rotations degree",
+                              active_rotate_deg.comps, NULL, 0);
+                igInputFloat("Object scale factor", &active_scale_pow,
+                             1 / 300.f, 1 / 150.f, "%.3f", 0);
+                igEnd();
+            }
+
+            {
+                igBegin("Scene Info", &true_val, 0);
+                igColorEdit3("Light Color", light_col.comps, 0);
+                igInputFloat3("Light Position", light_pos.comps,
+                              "%.3f", 0);
+                igColorEdit3("Sky Color", clear_col.comps, 0);
+                igSliderFloat("FOV : ", &fov, M_PI / 18.f, M_PI, NULL,
+                              0);
+                igColorEdit3("Ground Color", gnd_obj.color.comps, 0);
+                igEnd();
+            }
+
+            if (active_changed) {
+                active_translate = scene_objs[active_obj].translate;
+                active_rotate_deg =
+                  vec3_to_degrees(scene_objs[active_obj].rotate);
+                active_scale = scene_objs[active_obj].scale;
+                active_scale_pow = logf(active_scale.x) / logf(1.1f);
+                active_object_col = scene_objs[active_obj].color;
+            }
+
+            if (active_obj >= 0) {
+                scene_objs[active_obj].translate = vec3_add(
+                  scene_objs[active_obj].translate,
+                  vec3_scale_fl(
+                    vec3_sub(active_translate,
+                             scene_objs[active_obj].translate),
+                    10.f));
+                active_translate = scene_objs[active_obj].translate;
+                
+                scene_objs[active_obj].scale = active_scale;
+                scene_objs[active_obj].rotate =
+                  vec3_to_radians(active_rotate_deg);
+                scene_objs[active_obj].color = active_object_col;
+            }
+
+            igRender();
         }
         {
 
@@ -904,60 +1115,50 @@ int main(int argc, char *argv[]) {
                   VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
             }
 
-            struct DescriptorMats des_mats;
-            struct DescriptorLight des_lights;
-            des_mats.view = (Mat4)MAT4_IDENTITIY;
-            des_mats.proj = (Mat4)MAT4_IDENTITIY;
+            {
+                struct DescriptorMats des_mats;
+                struct DescriptorLight des_lights;
+                des_mats.view = (Mat4)MAT4_IDENTITIY;
+                des_mats.proj = (Mat4)MAT4_IDENTITIY;
 
-            des_mats.proj = mat4_orthographic(world_min, world_max);
+                des_mats.proj =
+                  mat4_orthographic(world_min, world_max);
 
-            des_mats.proj =
-              mat4_perspective(world_min, world_max, fov);
+                des_mats.proj =
+                  mat4_perspective(world_min, world_max, fov);
 
-            Vec4 test_min = mat4_multiply_vec(
-              &des_mats.proj,
-              (Vec4){ world_max.x, world_max.y, world_max.z, 1.f });
+                des_lights.light_col =
+                  vec4_from_vec3(light_col, 1.0f);
+                des_lights.light_src = vec4_from_vec3(light_pos, 1.f);
 
-            test_min = vec4_scale_fl(test_min, 1.f / test_min.w);
+                *(struct DescriptorMats
+                    *)(g_matrix_uniform_buffers[curr_frame_in_flight]
+                         .mapped_memory) = des_mats;
 
-            des_lights.light_col = vec4_from_vec3(light_col, 1.0f);
-            des_lights.light_src = vec4_from_vec3(light, 1.f);
+                *(struct DescriptorLight
+                    *)(g_lights_uniform_buffers[curr_frame_in_flight]
+                         .mapped_memory) = des_lights;
 
-            *(struct DescriptorMats
-                *)(g_matrix_uniform_buffers[curr_frame_in_flight]
-                     .mapped_memory) = des_mats;
-            
-            *(struct DescriptorLight
-                *)(g_lights_uniform_buffers[curr_frame_in_flight]
-                     .mapped_memory) = des_lights;
+                vkCmdBindDescriptorSets(
+                  rndr_cmd_buffers[curr_frame_in_flight],
+                  VK_PIPELINE_BIND_POINT_GRAPHICS,
+                  graphics_pipeline_layout, 0, 1,
+                  g_matrix_descriptor_sets + curr_frame_in_flight, 0,
+                  NULL);
 
-            vkCmdBindDescriptorSets(
-              rndr_cmd_buffers[curr_frame_in_flight],
-              VK_PIPELINE_BIND_POINT_GRAPHICS,
-              graphics_pipeline_layout, 0, 1,
-              g_matrix_descriptor_sets + curr_frame_in_flight, 0, NULL);
-            
-            vkCmdBindDescriptorSets(
-              rndr_cmd_buffers[curr_frame_in_flight],
-              VK_PIPELINE_BIND_POINT_GRAPHICS,
-              graphics_pipeline_layout, 1, 1,
-              g_lights_descriptor_sets + curr_frame_in_flight, 0,
-              NULL);
-
-            Mat4 translate = mat4_translate_3(
-              sq_translate.x, sq_translate.y, sq_translate.z);
-            Mat4 rotate =
-              mat4_rotation_XYZ(vec3_to_radians(sq_rotate));
-            Mat4 scale =
-              mat4_scale_3(sq_scale.x, sq_scale.y, sq_scale.z);
+                vkCmdBindDescriptorSets(
+                  rndr_cmd_buffers[curr_frame_in_flight],
+                  VK_PIPELINE_BIND_POINT_GRAPHICS,
+                  graphics_pipeline_layout, 1, 1,
+                  g_lights_descriptor_sets + curr_frame_in_flight, 0,
+                  NULL);
+            }
 
             PushConst pushes;
-            pushes.vert_consts.model_mat =
-              mat4_multiply_mat_3(&translate, &rotate, &scale);
-            pushes.frag_consts.model_col =
-              vec4_from_vec3(model_col, 1.0f);
 
-            for(int i = 0; i < push_range_count; ++i) {
+            pushes = object_process_push_const(gnd_obj);
+
+            for (int i = 0; i < push_range_count; ++i) {
                 vkCmdPushConstants(
                   rndr_cmd_buffers[curr_frame_in_flight],
                   graphics_pipeline_layout, push_ranges[i].stageFlags,
@@ -965,14 +1166,31 @@ int main(int argc, char *argv[]) {
                   (uint8_t *)&pushes + push_ranges[i].offset);
             }
 
-            submit_model_draw(&model0,
+            submit_model_draw(gnd_obj.ptr_model,
                               rndr_cmd_buffers[curr_frame_in_flight]);
+
+            for (int i = 0; i < obj_count; ++i) {
+                pushes = object_process_push_const(scene_objs[i]);
+
+                for (int i = 0; i < push_range_count; ++i) {
+                    vkCmdPushConstants(
+                      rndr_cmd_buffers[curr_frame_in_flight],
+                      graphics_pipeline_layout,
+                      push_ranges[i].stageFlags,
+                      push_ranges[i].offset, push_ranges[i].size,
+                      (uint8_t *)&pushes + push_ranges[i].offset);
+                }
+
+                submit_model_draw(
+                  scene_objs[i].ptr_model,
+                  rndr_cmd_buffers[curr_frame_in_flight]);
+            }
 
             {
 
-                ImDrawData *draw_data = igGetDrawData();
                 ImGui_ImplVulkan_RenderDrawData(
-                  draw_data, rndr_cmd_buffers[curr_frame_in_flight],
+                  igGetDrawData(),
+                  rndr_cmd_buffers[curr_frame_in_flight],
                   VK_NULL_HANDLE);
 
                 EndRenderingOperationsParam end_param = {
@@ -1028,14 +1246,25 @@ int main(int argc, char *argv[]) {
 cleanup_phase:
     switch (failure) {
         // Those who take in err_code, will be below their fail
-        // case label Else they will be above theier fail case
+        // case label Else they will be above thier fail case
         // label
         err_code = 0;
     case MAIN_FAIL_OK:
 
-        
-        ImGui_ImplWin32_Shutdown();
+        err_code = 0;
+    case MAIN_FAIL_MODEL_LOAD:
+        clear_model(ptr_alloc_callbacks, device.device,
+                    &ground_model);
+        clear_model(ptr_alloc_callbacks, device.device,
+                    &sphere_model);
+        clear_model(ptr_alloc_callbacks, device.device, &cube_model);
+        for (size_t i = 0; i < COUNT_OF(letter_models); ++i)
+            clear_model(ptr_alloc_callbacks, device.device,
+                        letter_models + i);
+
+
         ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplWin32_Shutdown();
         igDestroyContext(NULL);
         err_code = 0;
     case MAIN_FAIL_IMGUI_INIT:
@@ -1065,7 +1294,7 @@ cleanup_phase:
 
         err_code = 0;
     case MAIN_FAIL_DESCRIPTOR_BUFFER:
-        for(int i = 0; i < max_frames_in_flight; ++i) {
+        for (int i = 0; i < max_frames_in_flight; ++i) {
             if (g_matrix_uniform_buffers[i].buffer)
                 vkDestroyBuffer(device.device,
                                 g_matrix_uniform_buffers[i].buffer,
@@ -1101,11 +1330,6 @@ cleanup_phase:
             .p_matrix_set_layout = &g_matrix_layout,
           },
           err_code);
-
-        err_code = 0;
-    case MAIN_FAIL_MODEL_LOAD:
-        clear_model(ptr_alloc_callbacks, device.device,
-                    &model0);
 
         err_code = 0;
     case MAIN_FAIL_GPU_ALLOCR:
@@ -1172,6 +1396,28 @@ cleanup_phase:
             .p_framebuffers = &curr_swapchain_data.framebuffers },
           err_code);
 
+        clear_depthbuffers(
+          ptr_alloc_callbacks,
+          (ClearDepthbuffersParam){
+            .device = device.device,
+            .depth_count = curr_swapchain_data.img_count,
+            .p_depth_buffers = &old_swapchain_data.depth_imgs,
+            .p_depth_buffer_views = &old_swapchain_data.depth_views,
+            .p_depth_memory = &old_swapchain_data.device_mem,
+          },
+          0);
+        err_code = 0;
+    case MAIN_FAIL_DEPTHBUFFERS:
+        clear_depthbuffers(
+          ptr_alloc_callbacks,
+          (ClearDepthbuffersParam){
+            .device = device.device,
+            .depth_count = curr_swapchain_data.img_count,
+            .p_depth_buffers = &curr_swapchain_data.depth_imgs,
+            .p_depth_buffer_views = &curr_swapchain_data.depth_views,
+            .p_depth_memory = &curr_swapchain_data.device_mem,
+          },
+          err_code);
 
         // Use current image count
         old_swapchain_data.img_count = curr_swapchain_data.img_count;

@@ -14,7 +14,7 @@ struct VulkanLayer {
 };
 
 int test_vulkan_layer_presence(struct VulkanLayer *to_test,
-                               VkLayerProperties *avail_layers,
+                               const VkLayerProperties *avail_layers,
                                int avail_count) {
     to_test->available = 0;
     for (int i = 0; i < avail_count; ++i) {
@@ -43,7 +43,7 @@ struct VulkanExtension {
 
 int test_vulkan_extension_presence(
   struct VulkanExtension *to_test,
-  VkExtensionProperties *avail_extensions, int avail_count) {
+  const VkExtensionProperties *avail_extensions, int avail_count) {
     to_test->available = 0;
     for (int i = 0; i < avail_count; ++i) {
         if (strcmp(to_test->extension_name,
@@ -113,7 +113,7 @@ StackAllocator alloc_stack_allocator(size_t reserve, size_t commit) {
     return allocr;
 }
 
-void dealloc_stack_allocator(StackAllocator *allocr) {
+void dealloc_stack_allocator(const StackAllocator *allocr) {
     if (allocr)
         VirtualFree(allocr->base_memory, 0, MEM_RELEASE);
 }
@@ -160,7 +160,7 @@ enum CreateInstanceCodes {
 
 int create_instance(StackAllocator *stk_allocr,
                     size_t stk_allocr_offset,
-                    VkAllocationCallbacks *alloc_callbacks,
+                    const VkAllocationCallbacks *alloc_callbacks,
                     VkInstance *p_vk_instance,
                     struct VulkanLayer *instance_layers,
                     size_t layers_count,
@@ -275,7 +275,7 @@ int create_instance(StackAllocator *stk_allocr,
     return CREATE_INSTANCE_OK;
 }
 
-void clear_instance(VkAllocationCallbacks *alloc_callbacks,
+void clear_instance(const VkAllocationCallbacks *alloc_callbacks,
                     VkInstance *p_vk_instance, int err_codes) {
     switch (err_codes) {
     case CREATE_INSTANCE_OK:
@@ -399,6 +399,7 @@ struct VulkanDevice {
     VkQueue present_queue;
     uint32_t present_family_inx;
 
+    VkFormat depth_stencil_format;
     VkSurfaceFormatKHR img_format;
     VkPresentModeKHR present_mode;
     uint32_t min_img_count;
@@ -684,7 +685,7 @@ typedef struct {
     VkDevice *p_device;
     VkPhysicalDevice *p_phy_device;
 } ClearDeviceParam;
-void clear_device(VkAllocationCallbacks *alloc_callbacks,
+void clear_device(const VkAllocationCallbacks *alloc_callbacks,
                   ClearDeviceParam param, int err_codes) {
     switch (err_codes) {
     case CREATE_DEVICE_OK:
@@ -709,7 +710,7 @@ enum CreateCommandPoolCodes {
 };
 
 int create_command_pool(StackAllocator *stk_allocr, size_t stk_offset,
-                        VkAllocationCallbacks *alloc_callbacks,
+                        const VkAllocationCallbacks *alloc_callbacks,
                         CreateCommandPoolParam param) {
     VkResult result = VK_SUCCESS;
 
@@ -731,7 +732,7 @@ typedef struct {
     VkCommandPool *p_cmd_pool;
     VkDevice device;
 } ClearCommandPoolParam;
-void clear_command_pool(VkAllocationCallbacks *alloc_callbacks,
+void clear_command_pool(const VkAllocationCallbacks *alloc_callbacks,
                         ClearCommandPoolParam param, int err_code) {
 
     switch (err_code) {

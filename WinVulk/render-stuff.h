@@ -10,55 +10,77 @@ enum CreateRenderPassCodes {
 typedef struct {
     VkDevice device;
     VkFormat img_format;
+    VkFormat depth_stencil_format;
 
     VkRenderPass *p_render_pass;
 } CreateRenderPassParam;
 int create_render_pass(StackAllocator *stk_allocr, size_t stk_offset,
-                       VkAllocationCallbacks *alloc_callbacks,
+                       const VkAllocationCallbacks *alloc_callbacks,
                        CreateRenderPassParam param) {
 
     VkResult result = VK_SUCCESS;
 
-    VkAttachmentDescription attachments = {
-        .format = param.img_format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp =
-          VK_ATTACHMENT_LOAD_OP_CLEAR, // Determines what to do to
-                                       // attachment before render
-        .storeOp =
-          VK_ATTACHMENT_STORE_OP_STORE, // Whether to store rendered
-                                        // things back or not
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+    VkAttachmentDescription attachments[] = {
+        { .format = param.img_format,
+          .samples = VK_SAMPLE_COUNT_1_BIT,
+          .loadOp =
+            VK_ATTACHMENT_LOAD_OP_CLEAR, // Determines what to do to
+                                         // attachment before render
+          .storeOp =
+            VK_ATTACHMENT_STORE_OP_STORE, // Whether to store rendered
+                                          // things back or not
+          .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+          .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+          .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+          .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR },
+        {
+            .format =  param.depth_stencil_format,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        },
     };
 
-    VkAttachmentReference attachment_refs = {
+    VkAttachmentReference color_attach_ref = {
         .attachment = 0,
         .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference depth_attach_ref = {
+        .attachment = 1,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
 
     // Determines the shader input / output refrenced in the subpass
     VkSubpassDescription subpass = {
         .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
-        .pColorAttachments = &attachment_refs,
+        .pColorAttachments = &color_attach_ref,
+        .pDepthStencilAttachment = &depth_attach_ref,
     };
 
     VkSubpassDependency subpass_dependency = {
         .srcSubpass = VK_SUBPASS_EXTERNAL,
         .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+          VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
         .srcAccessMask = 0,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+          VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
     };
 
     VkRenderPassCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &attachments,
+        .attachmentCount = COUNT_OF(attachments),
+        .pAttachments = attachments,
         .subpassCount = 1,
         .pSubpasses = &subpass,
         .dependencyCount = 1,
@@ -79,7 +101,7 @@ typedef struct {
 
     VkRenderPass *p_render_pass;
 } ClearRenderPassParam;
-void clear_render_pass(VkAllocationCallbacks *alloc_callbacks,
+void clear_render_pass(const VkAllocationCallbacks *alloc_callbacks,
                        ClearRenderPassParam param, int err_codes) {
     switch (err_codes) {
     case CREATE_RENDER_PASS_OK:
@@ -141,7 +163,7 @@ typedef struct {
 
 int create_shader_module_from_file(
   StackAllocator *stk_allocr, size_t stk_offset,
-  VkAllocationCallbacks *alloc_callbacks,
+  const VkAllocationCallbacks *alloc_callbacks,
   CreateShaderModuleFromFileParam param) {
 
     VkResult result = VK_SUCCESS;
@@ -201,7 +223,7 @@ default_graphics_pipeline_creation_infos() {
             .offset = 0,
             .binding = 0,
             .location = 0,
-            .format = VK_FORMAT_R32G32_SFLOAT,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
           }
 
       };
@@ -263,6 +285,16 @@ default_graphics_pipeline_creation_infos() {
     };
 
     // Place for depth/stencil testing
+    infos
+      .depth_stencil_state = (VkPipelineDepthStencilStateCreateInfo){
+        .sType =
+          VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE,
+    };
 
     static const VkPipelineColorBlendAttachmentState
       default_color_blend_attaches[] = {
@@ -415,7 +447,7 @@ typedef struct {
 
     VkPipeline *p_pipeline;
 } ClearGraphicsPipelineParam;
-void clear_graphics_pipeline(VkAllocationCallbacks *alloc_callbacks,
+void clear_graphics_pipeline(const VkAllocationCallbacks *alloc_callbacks,
                              ClearGraphicsPipelineParam param,
                              int err_code) {
 
@@ -447,7 +479,7 @@ typedef struct {
     VkSemaphore **p_semaphores;
 } CreateSemaphoresParam;
 int create_semaphores(StackAllocator *stk_allocr, size_t stk_offset,
-                      VkAllocationCallbacks *alloc_callbacks,
+                      const VkAllocationCallbacks *alloc_callbacks,
                       CreateSemaphoresParam param) {
 
     VkResult result = VK_SUCCESS;
@@ -493,7 +525,7 @@ typedef struct {
     VkSemaphore **p_semaphores;
 } ClearSemaphoresParam;
 
-void clear_semaphores(VkAllocationCallbacks *alloc_callbacks,
+void clear_semaphores(const VkAllocationCallbacks *alloc_callbacks,
                       ClearSemaphoresParam param, int err_codes) {
 
     switch (err_codes) {
@@ -527,7 +559,7 @@ typedef struct {
     VkFence **p_fences;
 } CreateFencesParam;
 int create_fences(StackAllocator *stk_allocr, size_t stk_offset,
-                  VkAllocationCallbacks *alloc_callbacks,
+                  const VkAllocationCallbacks *alloc_callbacks,
                   CreateFencesParam param) {
     VkResult result = VK_SUCCESS;
 
@@ -566,7 +598,7 @@ typedef struct {
     VkFence **p_fences;
 } ClearFencesParam;
 
-void clear_fences(VkAllocationCallbacks *alloc_callbacks,
+void clear_fences(const VkAllocationCallbacks *alloc_callbacks,
                   ClearFencesParam param, int err_codes) {
 
     switch (err_codes) {
@@ -648,50 +680,6 @@ void clear_primary_command_buffers(
     }
 }
 
-//
-// int create_descriptor_layout(GlobalData* p_win) {
-//
-//	VkResult result = VK_SUCCESS;
-//	int res = 0;
-//
-//
-//	VkDescriptorSetLayoutBinding bind = {
-//		.binding = 0,
-//		.descriptorCount = 1,
-//		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-//		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-//	};
-//
-//	VkDescriptorSetLayoutCreateInfo create_info = {
-//		.sType =
-//VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, 		.bindingCount =
-//1, 		.pBindings = &bind,
-//	};
-//
-//
-//	result = vkCreateDescriptorSetLayout(p_win->device,
-//&create_info, 		p_win->p_host_alloc_calls, 		&p_win->descriptor_layout);
-//	res--;
-//	if (result != VK_SUCCESS)
-//		return res;
-//
-//
-//	res = 0;
-//
-//
-//	return res;
-//
-//}
-//
-//
-//
-//
-//
-// int clear_descriptor_layout(GlobalData* p_win) {
-//	vkDestroyDescriptorSetLayout(p_win->device,
-//p_win->descriptor_layout, 		p_win->p_host_alloc_calls); 	return 0;
-//}
-
 
 enum BeginRenderingOperationsCodes {
     BEGIN_RENDERING_OPERATIONS_FAILED = -0x7fff,
@@ -748,6 +736,12 @@ int begin_rendering_operations(BeginRenderingOperationsParam param) {
     if (result != VK_SUCCESS)
         return BEGIN_RENDERING_OPERATIONS_BEGIN_CMD_BUFFER_FAIL;
 
+    VkClearValue clear_values[] = {
+        param.clear_value,
+        (VkClearValue){
+          .depthStencil = { .depth = 1.f, .stencil = 0 },
+        }
+    };
     
     VkRenderPassBeginInfo rndr_begin_info = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -755,8 +749,8 @@ int begin_rendering_operations(BeginRenderingOperationsParam param) {
         .framebuffer = param.framebuffers[*param.p_img_inx],
         .renderArea = { .offset = { 0, 0 },
                         .extent = param.framebuffer_render_extent },
-        .clearValueCount = 1,
-        .pClearValues = &param.clear_value,
+        .clearValueCount = COUNT_OF(clear_values),
+        .pClearValues = clear_values,
 
     };
     vkCmdBeginRenderPass(param.cmd_buffer, &rndr_begin_info,

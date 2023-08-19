@@ -81,8 +81,8 @@ struct DescriptorLight {
     Vec4 light_col;
 };
 
-int create_descriptor_layouts(VkAllocationCallbacks *alloc_callbacks,
-                               CreateDescriptorLayoutsParam param) {
+int create_descriptor_layouts(const VkAllocationCallbacks *alloc_callbacks,
+                              CreateDescriptorLayoutsParam param) {
 
 
     VkResult result = VK_SUCCESS;
@@ -132,7 +132,7 @@ typedef struct {
     VkDescriptorSetLayout *p_lights_set_layout;
 } ClearDescriptorLayoutsParam;
 
-void clear_descriptor_layouts(VkAllocationCallbacks *alloc_callbacks,
+void clear_descriptor_layouts(const VkAllocationCallbacks *alloc_callbacks,
                               ClearDescriptorLayoutsParam param,
                               int err_code) {
     switch (err_code) {
@@ -170,8 +170,8 @@ typedef struct {
 } CreateDescriptorPoolParam;
 
 
-int create_descriptor_pool(VkAllocationCallbacks *alloc_callbacks,
-                            CreateDescriptorPoolParam param) {
+int create_descriptor_pool(const VkAllocationCallbacks *alloc_callbacks,
+                           CreateDescriptorPoolParam param) {
 
     VkResult res = VK_SUCCESS;
     
@@ -211,7 +211,7 @@ typedef struct {
 
     VkDescriptorPool *p_descriptor_pool;
 } ClearDescriptorPoolParam;
-void clear_descriptor_pool(VkAllocationCallbacks *alloc_callbacks,
+void clear_descriptor_pool(const VkAllocationCallbacks *alloc_callbacks,
                            ClearDescriptorPoolParam param,
                            int err_code) {
     switch (err_code) {
@@ -404,6 +404,7 @@ static const size_t push_range_count = COUNT_OF(push_ranges);
 static const char *vert_file_name = "shaders/out/demo0.vert.hlsl.spv";
 static const char *frag_file_name = "shaders/out/demo0.frag.hlsl.spv";
 
+typedef uint16_t IndexInput;
 // Based on currently used vertices and indices
 struct Model {
     size_t vertex_count;
@@ -434,7 +435,7 @@ typedef struct {
     VertexInput *vertices_list;
     uint16_t *indices_list;
 } CreateModelParam;
-int create_model(VkAllocationCallbacks *alloc_callbacks,
+int create_model(const VkAllocationCallbacks *alloc_callbacks,
                  CreateModelParam param, struct Model *out_model) {
 
     if (vkCreateBuffer(
@@ -515,7 +516,7 @@ int create_model(VkAllocationCallbacks *alloc_callbacks,
     return CREATE_MODEL_OK;
 }
 
-void clear_model(VkAllocationCallbacks *alloc_callbacks,
+void clear_model(const VkAllocationCallbacks *alloc_callbacks,
                  VkDevice device, struct Model *p_model) {
     if (p_model->indices_count || p_model->vertex_count) {
         if (p_model->vert_buffer.buffer)
@@ -528,7 +529,7 @@ void clear_model(VkAllocationCallbacks *alloc_callbacks,
     *p_model = (struct Model){ 0 };
 }
 
-void submit_model_draw(struct Model *p_model,
+void submit_model_draw(const struct Model *p_model,
                        VkCommandBuffer cmd_buffer) {
 
     vkCmdBindVertexBuffers(cmd_buffer, 0, 1,
@@ -538,4 +539,28 @@ void submit_model_draw(struct Model *p_model,
                          VK_INDEX_TYPE_UINT16);
     vkCmdDrawIndexed(cmd_buffer, p_model->indices_count, 1, 0, 0, 0);
     // vkCmdDraw(cmd_buffer, p_model->vertex_count, 1, 0, 0);
+}
+
+
+struct Object3D {
+    struct Model *ptr_model;
+    Vec3 translate;
+    Vec3 rotate;        //Angle in radians
+    Vec3 scale;
+
+    Vec3 color;
+};
+
+PushConst object_process_push_const(struct Object3D obj) {
+
+    Mat4 translate = mat4_translate_3(obj.translate.x, obj.translate.y,
+                                      obj.translate.z);
+    Mat4 rotate = mat4_rotation_XYZ(obj.rotate);
+    Mat4 scale = mat4_scale_3(obj.scale.x, obj.scale.y, obj.scale.z);
+
+    PushConst pushes;
+    pushes.vert_consts.model_mat =
+      mat4_multiply_mat_3(&translate, &rotate, &scale);
+    pushes.frag_consts.model_col = vec4_from_vec3(obj.color, 1.0f);
+    return pushes;
 }

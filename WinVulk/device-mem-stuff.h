@@ -32,7 +32,7 @@ typedef struct {
     GPUAllocator *p_gpu_allocr;
 } AllocateDeviceMemoryParam;
 
-int allocate_device_memory(VkAllocationCallbacks *alloc_callbacks,
+int allocate_device_memory(const VkAllocationCallbacks *alloc_callbacks,
                            AllocateDeviceMemoryParam param) {
 
     VkPhysicalDeviceMemoryProperties mem_props = { 0 };
@@ -96,7 +96,7 @@ typedef struct {
     GPUAllocator *p_gpu_allocr;
 } FreeDeviceMemoryParam;
 
-void free_device_memory(VkAllocationCallbacks *alloc_callbacks,
+void free_device_memory(const VkAllocationCallbacks *alloc_callbacks,
                         FreeDeviceMemoryParam param, int err_codes) {
 
     switch (err_codes) {
@@ -186,6 +186,8 @@ enum CreateAndAllocateBufferCodes {
 
     CREATE_AND_ALLOCATE_BUFFER_OK = 0,
 };
+
+
 typedef struct {
     GpuAllocrAllocatedBuffer *p_buffer;
     VkSharingMode share_mode;
@@ -193,10 +195,10 @@ typedef struct {
     size_t size;
 
 }CreateAndAllocateBufferParam;
-int create_and_allocate_buffer(VkAllocationCallbacks * alloc_callbacks,
-                                GPUAllocator *p_allocr,
-                                VkDevice device,
-                                CreateAndAllocateBufferParam param) { 
+int create_and_allocate_buffer(const VkAllocationCallbacks * alloc_callbacks,
+                               GPUAllocator *p_allocr,
+                               VkDevice device,
+                               CreateAndAllocateBufferParam param) { 
     
     VkBufferCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,

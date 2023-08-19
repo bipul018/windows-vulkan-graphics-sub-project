@@ -61,6 +61,22 @@ Vec3 vec3_scale_fl(Vec3 v, float s) {
     return (Vec3){ v.x * s, v.y * s, v.z * s };
 }
 
+Vec3 vec3_cross(Vec3 a, Vec3 b) {
+    return (Vec3){
+        a.y * b.z - a.z * b.y,
+        b.x * a.z - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+float vec3_dot(Vec3 a, Vec3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vec3 vec3_sub(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
 }

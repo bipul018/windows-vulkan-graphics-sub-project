@@ -30,3 +30,9 @@ To run the exe after compilation make sure to have the following at the same fol
 A sample .exe is situated at \WinVulk\WinVulk.exe
 
 This .exe may not be updated, if needed so then compile the source code to full
+
+Controls:
+The GUI works as shown, click on the list of letters to load a letter onto the screen. 
+ADWSQE => controls the x y and z of translation
+JLIKUO => controls the x y and z of rotation
+Scroll Vertical => controls the scaling

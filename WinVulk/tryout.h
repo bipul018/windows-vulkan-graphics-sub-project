@@ -80,42 +80,42 @@ typedef struct TempStruct
 }TempStruct;
 
 //"Foolproof version" hopefully
-typedef struct ShitNode
+typedef struct ProcessNode
 {
     union Point *point;
     enum CurveNodeFlag flag;
     struct Child
     {
-        struct ShitNode *prev;
-        struct ShitNode *next;
+        struct ProcessNode *prev;
+        struct ProcessNode *next;
         struct Child *another;
     } *children;
 
-}ShitNode;
+}ProcessNode;
 
 
 //Only swaps first of children
-void swap_shit_pts( ShitNode *a, ShitNode *b ) {
+void swap_process_pts( ProcessNode *a, ProcessNode *b ) {
     
     if((a->children->next == b) && (a->children->prev == b)) {
-        swap_stuff( ShitNode, *a, *b );
-        swap_stuff( ShitNode *, a->children->prev, b->children->prev );
-        swap_stuff( ShitNode *, a->children->next, b->children->next );
+        swap_stuff( ProcessNode, *a, *b );
+        swap_stuff( ProcessNode *, a->children->prev, b->children->prev );
+        swap_stuff( ProcessNode *, a->children->next, b->children->next );
     }
     else if((a->children->next == b)) {
-        swap_stuff( ShitNode, *a, *b );
-        swap_stuff( ShitNode *, a->children->prev, b->children->next );
+        swap_stuff( ProcessNode, *a, *b );
+        swap_stuff( ProcessNode *, a->children->prev, b->children->next );
         a->children->next->children->prev = a;
         b->children->prev->children->next = b;
     }
     else if((a->children->prev == b)) {
-        swap_stuff( ShitNode, *a, *b );
-        swap_stuff( ShitNode *, a->children->next, b->children->prev );
+        swap_stuff( ProcessNode, *a, *b );
+        swap_stuff( ProcessNode *, a->children->next, b->children->prev );
         a->children->prev->children->next = a;
         b->children->next->children->prev = b;
     }
     else {
-        swap_stuff( ShitNode, *a, *b );
+        swap_stuff( ProcessNode, *a, *b );
         a->children->next->children->prev = a;
         a->children->prev->children->next = a;
         b->children->next->children->prev = b;
@@ -125,7 +125,7 @@ void swap_shit_pts( ShitNode *a, ShitNode *b ) {
 }
 
 //Collects the curve into the dst in sequential y order
-void sort_shit_curve( ShitNode * ptr, size_t count) {
+void sort_process_curve( ProcessNode * ptr, size_t count) {
     
 
     for(size_t i = 0; i < count; ++i) {
@@ -137,7 +137,7 @@ void sort_shit_curve( ShitNode * ptr, size_t count) {
                     
             
             {
-                swap_shit_pts( ptr + j, ptr + j + 1 );
+                swap_process_pts( ptr + j, ptr + j + 1 );
             }
         }
     }
@@ -146,8 +146,8 @@ void sort_shit_curve( ShitNode * ptr, size_t count) {
 #include "misc_tools.h"
 #include <Windows.h>
 //Now let's try for an array of heads, winding order pre maintained
-void shitnode_version(StackAllocator * stk_allocr, size_t stk_offset,
-                            ShitNode * nodes, size_t total_points,union Point * base_point_ptr, Triangle * triangles, size_t triangle_count)
+void triangulate_curve(StackAllocator * stk_allocr, size_t stk_offset,
+                            ProcessNode * nodes, size_t total_points,union Point * base_point_ptr, Triangle * triangles, size_t triangle_count)
 {
     
 
@@ -178,9 +178,9 @@ void shitnode_version(StackAllocator * stk_allocr, size_t stk_offset,
         //Else carry out the job
 
         //Test for triangle in or not
-        ShitNode *greater = ((nodes[curr_node].children->next > nodes[curr_node].children->prev) ? nodes[curr_node].children->next : nodes[curr_node].children->prev);
-        ShitNode *lowest = (ShitNode*)( - 1);
-        for(ShitNode *ptr = nodes + curr_node + 1; ptr <= greater; ++ptr) {
+        ProcessNode *greater = ((nodes[curr_node].children->next > nodes[curr_node].children->prev) ? nodes[curr_node].children->next : nodes[curr_node].children->prev);
+        ProcessNode *lowest = (ProcessNode*)( - 1);
+        for(ProcessNode *ptr = nodes + curr_node + 1; ptr <= greater; ++ptr) {
             if((ptr != nodes[curr_node].children->next) && (ptr != nodes[curr_node].children->prev) ) {
                 //Test if inside triangle
                 POINT p1, p2, p3;

@@ -278,16 +278,16 @@ GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_of
       add_font_verts(stk_allocr, stk_offset, codepoint);
 
     //Collect shitnodes
-    ShitNode *shit_nodes =
+    ProcessNode *shit_nodes =
       stack_allocate(stk_allocr, &letter_info.stk_offset,
                      letter_info.total_points * sizeof *shit_nodes,
                      sizeof *shit_nodes);
 
     // Collect in array
     {
-        ShitNode *nptr = shit_nodes;
+        ProcessNode *nptr = shit_nodes;
         for (size_t i = 0; i < letter_info.curve_count; ++i) {
-            ShitNode *ptr_top = nptr;
+            ProcessNode *ptr_top = nptr;
             CurveNode *ptr = letter_info.curves[i];
             do {
                 nptr->point = ptr->point;
@@ -312,13 +312,13 @@ GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_of
 
     
     //Sort the shitnode curves
-    sort_shit_curve(shit_nodes, letter_info.total_points);
+    sort_process_curve(shit_nodes, letter_info.total_points);
 
     size_t face_triangle_count =
       letter_info.total_points + 2 * letter_info.curve_count - 4;
 
     //Setup inputs and send
-    shitnode_version(
+    triangulate_curve(
       stk_allocr, letter_info.stk_offset, shit_nodes,
       letter_info.total_points, letter_info.first_point,
       (Triangle *)letter_info.indices, face_triangle_count);

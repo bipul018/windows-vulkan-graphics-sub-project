@@ -321,6 +321,14 @@ struct AddCurveOutput add_font_verts(StackAllocator *stk_allocr,
     size_t total_side_points =
       num_beizer_points + num_line_points * 2;
 
+    // Allocate for head pointers CurveNode
+    CurveNode **curve_heads = stack_allocate(
+      stk_allocr, &stk_offset, num_curves * sizeof *curve_heads, 1);
+
+    //Allocate a dummy corruption protection
+    stack_allocate(stk_allocr, &stk_offset, 16 * sizeof(void *),
+                   sizeof(void *));
+
     //Allocate the upper limit to vertices for GPU and processing
     union Point *points =
       stack_allocate(stk_allocr, &stk_offset,
@@ -338,9 +346,6 @@ struct AddCurveOutput add_font_verts(StackAllocator *stk_allocr,
         (total_face_triangles*2 + total_side_triangles) * 3,
       sizeof(IndexInput));
 
-    //Allocate for head pointers CurveNode
-    CurveNode **curve_heads = stack_allocate(
-      stk_allocr, &stk_offset, num_curves * sizeof * curve_heads, 1);
 
     //Allocate for curve nodes now, but do this in stack allocator uninterrupted
     //So all of it is linearly allocated

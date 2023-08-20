@@ -1,4 +1,5 @@
 ﻿#include <Windows.h>
+#include <windowsx.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -12,6 +13,15 @@
 #include "render-stuff.h"
 #include "vectors.h"
 #include "window-stuff.h"
+
+
+#include "misc_tools.h"
+
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include "imgui/cimgui.h"
+
+#include "imgui/imgui/imgui_impl_vulkan.h"
+#include "imgui/imgui/imgui_impl_win32.h"
 
 
 void *VKAPI_PTR cb_allocation_fxn(void *user_data, size_t size,
@@ -46,14 +56,71 @@ struct WinProcData {
     int height;
     HANDLE win_handle;
 
-    // Data that are UI controlled
-    // Controlled by qweasd keys
-    Vec3 *qweasd;
-    // Controlled by uiojkl keys
-    Vec3 *uiojkl;
+    POINT mouse_pos;
+    BOOL init_success;
 
-    float *scroll;
+    // Data that are UI controlled
+    Vec3 *ptr_translate;
+    Vec3 *ptr_rotate;
+    Vec3 *ptr_scale;
+    BOOL char_pressed;
+    int char_codepoint;
 };
+
+
+//Letter unit
+struct CharacterModel {
+    int codepoint;
+    struct Model model;
+    struct CharacterModel *next;
+};
+
+struct CharacterModel *
+search_character_model(struct CharacterModel *head, int codepoint) {
+    while (head) {
+        if (head->codepoint == codepoint)
+            return head;
+        head = head->next;
+    }
+    return head;
+}
+
+BOOL push_character_model(StackAllocator *stk_allocr,
+                          size_t *stk_offset,
+                          VkAllocationCallbacks *alloc_callbacks,
+                          GPUAllocator *p_gpu_mem_allocr,
+                          VkDevice device,
+                          struct CharacterModel **phead,
+                          int codepoint) {
+
+
+    struct CharacterModel *model = stack_allocate(
+      stk_allocr, stk_offset, sizeof *model, sizeof *model);
+
+    GenerateModelOutput out = load_text_character(
+      stk_allocr, *stk_offset, codepoint, (Vec3){ 0.f, 0.f, 200.f });
+    if (!out.vertices || !out.indices)
+        return FALSE;
+
+
+    if (create_model(alloc_callbacks,
+                     (CreateModelParam){
+                       .device = device,
+                       .p_allocr = p_gpu_mem_allocr,
+                       .index_count = out.index_count,
+                       .indices_list = out.indices,
+                       .vertex_count = out.vertex_count,
+                       .vertices_list = out.vertices,
+                     },
+                     &(model->model)) < 0)
+        return FALSE;
+
+    model->next = *phead;
+    model->codepoint = codepoint;
+    *phead = model;
+    return TRUE;
+}
+
 
 
 // Forward declare message handler from imgui_impl_win32.cpp
@@ -87,7 +154,6 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
     if (ImGui_ImplWin32_WndProcHandler(h_wnd, msg, wparam, lparam))
         return 1;
     if (pdata) {
-
         if (msg == WM_DESTROY) {
             KillTimer(h_wnd, pdata->timer_id);
             PostQuitMessage(0);
@@ -115,73 +181,97 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam,
             pdata->height = client_area.bottom;
             // recreate_swapchain(pdata);
         }
-        if (msg == WM_SETCURSOR) {
-            HCURSOR cursor = LoadCursor(NULL, IDC_UPARROW);
-            SetCursor(cursor);
-        }
-        if (msg == WM_KEYDOWN) {
-            switch (wparam) {
-                if (pdata->qweasd) {
-                case 'Q':
-                    pdata->qweasd->z--;
-                    break;
-                case 'E':
-                    pdata->qweasd->z++;
-                    break;
-                case 'A':
-                    pdata->qweasd->x--;
-                    break;
-                case 'D':
-                    pdata->qweasd->x++;
-                    break;
-                case 'W':
-                    pdata->qweasd->y--;
-                    break;
-                case 'S':
-                    pdata->qweasd->y++;
-                    break;
-                }
-                if (pdata->uiojkl) {
-                case 'U':
-                    pdata->uiojkl->z--;
-                    break;
-                case 'O':
-                    pdata->uiojkl->z++;
-                    break;
-                case 'J':
-                    pdata->uiojkl->x--;
-                    break;
-                case 'L':
-                    pdata->uiojkl->x++;
-                    break;
-                case 'I':
-                    pdata->uiojkl->y--;
-                    break;
-                case 'K':
-                    pdata->uiojkl->y++;
-                    break;
+
+        if (!pdata->init_success)
+            return DefWindowProc(h_wnd, msg, wparam, lparam);
+
+        if (!igGetIO()->WantCaptureKeyboard)
+        {
+            if (msg == WM_KEYDOWN) {
+                switch (wparam) {
+                    if (pdata->ptr_translate) {
+                        case VK_NEXT:
+                            pdata->ptr_translate->z--;
+                        break;
+                        case VK_PRIOR:
+                            pdata->ptr_translate->z++;
+                        break;
+                        case VK_LEFT:
+                            pdata->ptr_translate->x--;
+                        break;
+                        case VK_RIGHT:
+                            pdata->ptr_translate->x++;
+                        break;
+                        case VK_UP:
+                            pdata->ptr_translate->y--;
+                        break;
+                        case VK_DOWN:
+                            pdata->ptr_translate->y++;
+                        break;
+                    }
+                
                 }
             }
+            if (msg == WM_CHAR) {
+                pdata->char_pressed = TRUE;
+                pdata->char_codepoint = wparam;
+            }
         }
-        if (msg == WM_MOUSEWHEEL) {
-            if (pdata->scroll) {
-                pdata->scroll[0] +=
-                  (float)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+        if (!igGetIO()->WantCaptureMouse) {
+            if (msg == WM_SETCURSOR) {
+                HCURSOR cursor = LoadCursor(NULL, IDC_UPARROW);
+                SetCursor(cursor);
+            }
+            if (msg == WM_MOUSEWHEEL) {
+                if (pdata->ptr_scale) {
+                    *(pdata->ptr_scale) = vec3_scale_fl(
+                      *(pdata->ptr_scale),
+                      powf(1.1f,
+                           (float)GET_WHEEL_DELTA_WPARAM(wparam) /
+                             WHEEL_DELTA));
+                }
+            }
+            if (msg == WM_MOUSEMOVE) {
+                POINT mouse_pos = { .x = GET_X_LPARAM(lparam),
+                                    .y = GET_Y_LPARAM(lparam) };
+                if ((wparam & MK_LBUTTON) && pdata->ptr_rotate) {
+
+                    Mat4 rot_org =
+                      mat4_rotation_XYZ(*pdata->ptr_rotate);
+
+                    Mat4 rot_new = mat4_rotation_XYZ((Vec3){
+                      .y = (mouse_pos.x - pdata->mouse_pos.x) /
+                        (-20 * M_PI),
+                      .x = (mouse_pos.y - pdata->mouse_pos.y) /
+                        (20 * M_PI) });
+
+                    Mat4 res = mat4_multiply_mat(&rot_new, &rot_org);
+
+                    if (fabsf(fabsf(res.cols[0].comps[2]) - 1.f) >
+                        0.0001f) {
+                        pdata->ptr_rotate->y = -asinf(res.mat[0][2]);
+                        pdata->ptr_rotate->x = atan2f(
+                          res.mat[1][2] / cosf(pdata->ptr_rotate->y),
+                          res.mat[2][2] / cosf(pdata->ptr_rotate->y));
+                        pdata->ptr_rotate->z = atan2f(
+                          res.mat[0][1] / cosf(pdata->ptr_rotate->y),
+                          res.mat[0][0] / cosf(pdata->ptr_rotate->y));
+                    } else {
+                        pdata->ptr_rotate->z = 0.f;
+                        pdata->ptr_rotate->y =
+                          res.mat[0][2] * M_PI / -2.f;
+                        pdata->ptr_rotate->x =
+                          atan2f(-res.mat[1][0] * res.mat[0][2],
+                                 -res.mat[2][0] * res.mat[0][2]);
+                    }
+                }
+                pdata->mouse_pos = mouse_pos;
             }
         }
     }
 
     return DefWindowProc(h_wnd, msg, wparam, lparam);
 }
-
-#include "misc_tools.h"
-
-#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-#include "imgui/cimgui.h"
-
-#include "imgui/imgui/imgui_impl_vulkan.h"
-#include "imgui/imgui/imgui_impl_win32.h"
-
 #pragma warning(push, 3)
 #pragma warning(default : 4703 4700)
 int main(int argc, char *argv[]) {
@@ -252,7 +342,7 @@ int main(int argc, char *argv[]) {
     ptr_alloc_callbacks = NULL;
 
     struct WinProcData winproc_data = { 0 };
-
+    winproc_data.init_success = FALSE;
     if (!CreateWindowEx(0, wndclass_name, L"3D Mesh From 2D Vectors",
                         WS_OVERLAPPEDWINDOW, 20, 10, 800, 700, NULL,
                         NULL, h_instance, &winproc_data))
@@ -837,25 +927,7 @@ int main(int argc, char *argv[]) {
     struct Model ground_model = { 0 };
     struct Model sphere_model = { 0 };
     struct Model cube_model = { 0 };
-
-    WCHAR letters[26 + 7 ][2] = { 0 };
-    // 26 letters , both cases and 10 digits
-    for (int i = 0; i < 26; ++i)
-        letters[i][0] = i + L'A';
-    //for (int i = 0; i < 26; ++i)
-    //    letters[i + 26][0] = i + 'a';
-    //for (int i = 0; i < 10; ++i)
-    //    letters[i + 26 * 2][0] = i + '0';
-    letters[26][0] = L'ध';
-    letters[27][0] = L'न';
-    letters[28][0] = L'्';
-    letters[29][0] = L'य';
-    letters[30][0] = L'व';
-    letters[31][0] = L'ा';
-    letters[32][0] = L'द';
-
-    struct Model letter_models[COUNT_OF(letters) ] = { 0 };
-
+    
 
     {
         GenerateModelOutput out;
@@ -909,25 +981,6 @@ int main(int argc, char *argv[]) {
                          &sphere_model) < 0)
             return_main_fail(MAIN_FAIL_MODEL_LOAD);
 
-        for (size_t i = 0; i < COUNT_OF(letter_models); ++i) {
-            out = load_text_character(ptr_stk_allocr, stk_offset,
-                                      letters[i][0],
-                                      (Vec3){ 0.f, 0.f, 200.f });
-            if (!out.vertices || !out.indices)
-                return_main_fail(MAIN_FAIL_MODEL_LOAD);
-
-            if (create_model(ptr_alloc_callbacks,
-                             (CreateModelParam){
-                               .device = device.device,
-                               .p_allocr = &gpu_mem_allocr,
-                               .index_count = out.index_count,
-                               .indices_list = out.indices,
-                               .vertex_count = out.vertex_count,
-                               .vertices_list = out.vertices,
-                             },
-                             letter_models + i) < 0)
-                return_main_fail(MAIN_FAIL_MODEL_LOAD);
-        }
     }
 
     // Miscellaneous data + object data
@@ -942,17 +995,16 @@ int main(int argc, char *argv[]) {
     bool object_solid_mode[100];
     int obj_count = 0;
     int active_obj = -1;
+    struct CharacterModel *charac_models = NULL;
 
-
-    Vec3 active_rotate_deg = { 0 };
+    Vec3 active_rotate = { 0 };
     Vec3 active_translate = { 0 };
     Vec3 active_scale = { 1.f, 1.f, 1.f };
-    float active_scale_pow = 0;
     Vec3 active_object_col = { 0.5f, 0.5f, 0.5f };
 
-    winproc_data.qweasd = &active_translate;
-    winproc_data.uiojkl = &active_rotate_deg;
-    winproc_data.scroll = &active_scale_pow;
+    winproc_data.ptr_translate = &active_translate;
+    winproc_data.ptr_rotate = &active_rotate;
+    winproc_data.ptr_scale = &active_scale;
 
     Vec3 world_min = { -300, -300, -400 };
     Vec3 world_max = { 300, 300, 400 };
@@ -961,10 +1013,11 @@ int main(int argc, char *argv[]) {
     Vec3 light_pos = { 0.f, 0, -800.f };
     Vec3 light_col = { 1.f, 1.f, 1.f };
     Vec3 clear_col = { 0.1f, 0.2f, 0.4f };
+    winproc_data.init_success = TRUE;
 
     MSG msg = { 0 };
     while (msg.message != WM_QUIT) {
-
+        
 
         while ((PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) > 0)) {
             TranslateMessage(&msg);
@@ -975,10 +1028,7 @@ int main(int argc, char *argv[]) {
             ImGui_ImplVulkan_NewFrame();
             ImGui_ImplWin32_NewFrame();
             igNewFrame();
-
-            active_scale.x = active_scale.y = active_scale.z =
-              powf(1.1f, active_scale_pow);
-
+            
             world_min.x = -winproc_data.width / 2.f;
             world_min.y = -winproc_data.height / 2.f;
 
@@ -989,6 +1039,42 @@ int main(int argc, char *argv[]) {
             bool true_val = true;
             bool active_changed = false;
 
+            if (winproc_data.char_pressed == TRUE) {
+                struct CharacterModel *ptr = search_character_model(
+                  charac_models, winproc_data.char_codepoint);
+                if (ptr) {
+
+                    active_obj = obj_count++;
+                    object_solid_mode[active_obj] = true;
+                    scene_objs[active_obj] = (struct Object3D){
+                        .ptr_model = &ptr->model,
+                        .color = (Vec3){ 1.f, 1.f, 1.f },
+                        .rotate = (Vec3){ M_PI },
+                        .translate = (Vec3){ 0 },
+                        .scale = (Vec3){ 1.f, 1.f, 1.f },
+                    };
+                    active_changed = true;
+                } else {
+                    if (push_character_model(
+                          ptr_stk_allocr, &stk_offset,
+                          ptr_alloc_callbacks, &gpu_mem_allocr,
+                          device.device, &charac_models,
+                          winproc_data.char_codepoint) == TRUE) {
+
+                        active_obj = obj_count++;
+                        object_solid_mode[active_obj] = true;
+                        scene_objs[active_obj] = (struct Object3D){
+                            .ptr_model = &charac_models->model,
+                            .color = (Vec3){ 1.f, 1.f, 1.f },
+                            .rotate = (Vec3){ M_PI },
+                            .translate = (Vec3){ 0 },
+                            .scale = (Vec3){ 1.f, 1.f, 1.f },
+                        };
+                        active_changed = true;
+                    }
+                }
+            }
+            winproc_data.char_pressed = FALSE;
             {
                 igBegin("3D Object Info", &true_val, 0);
                 igText("Total objects in scene : %d ", obj_count);
@@ -1018,30 +1104,6 @@ int main(int argc, char *argv[]) {
                     active_changed = true;
                 }
                 
-                if (igBeginCombo("Create Letter", "Choose Letter",
-                                 0)) {
-
-
-                    for (size_t i = 0; i < COUNT_OF(letters); ++i) {
-                        if (igSelectable_Bool(letters[i], false, 0,
-                                              (ImVec2){ 0 })) {
-                            
-                            active_obj = obj_count++;
-                            object_solid_mode[active_obj] = true;
-                            scene_objs[active_obj] =
-                              (struct Object3D){
-                                  .ptr_model = letter_models + i,
-                                  .color = (Vec3){ 1.f, 1.f, 1.f },
-                                  .rotate = (Vec3){ M_PI },
-                                  .translate = (Vec3){ 0 },
-                                  .scale = (Vec3){ 1.f, 1.f, 1.f },
-                              };
-                            active_changed = true;
-                        }
-                    }
-
-                    igEndCombo();
-                }
                 
 
                 if (igButton("Next Object", (ImVec2){ 0 })) {
@@ -1063,12 +1125,14 @@ int main(int argc, char *argv[]) {
                 igColorEdit3("Object Color", active_object_col.comps,
                              0);
                 igInputFloat3("Object Position",
-                              active_translate.comps, NULL, 0);
-                igInputFloat3("Object rotations degree",
-                              active_rotate_deg.comps, NULL, 0);
-                igInputFloat("Object scale factor", &active_scale_pow,
-                             1 / 300.f, 1 / 150.f, "%.3f", 0);
-                igSelectable_BoolPtr("Show Mesh",
+                              active_translate.comps, "%.2f", 0);
+                Vec3 dummy = vec3_to_degrees(active_rotate);
+                igInputFloat3("Object rotations Degree",
+                              dummy.comps, "%.2f", 0);
+                active_rotate = vec3_to_radians(dummy);
+                igInputFloat3("Object scale factor", active_scale.comps,
+                              "%.2f", 0);
+                igSelectable_BoolPtr("Draw Surface",
                                      object_solid_mode + active_obj,
                                      0, (ImVec2){ 0 });
 
@@ -1089,10 +1153,8 @@ int main(int argc, char *argv[]) {
 
             if (active_changed) {
                 active_translate = scene_objs[active_obj].translate;
-                active_rotate_deg =
-                  vec3_to_degrees(scene_objs[active_obj].rotate);
+                active_rotate =scene_objs[active_obj].rotate;
                 active_scale = scene_objs[active_obj].scale;
-                active_scale_pow = logf(active_scale.x) / logf(1.1f);
                 active_object_col = scene_objs[active_obj].color;
             }
 
@@ -1106,8 +1168,7 @@ int main(int argc, char *argv[]) {
                 active_translate = scene_objs[active_obj].translate;
                 
                 scene_objs[active_obj].scale = active_scale;
-                scene_objs[active_obj].rotate =
-                  vec3_to_radians(active_rotate_deg);
+                scene_objs[active_obj].rotate =active_rotate;
                 scene_objs[active_obj].color = active_object_col;
             }
 
@@ -1325,8 +1386,14 @@ cleanup_phase:
         // Those who take in err_code, will be below their fail
         // case label Else they will be above thier fail case
         // label
-        err_code = 0;
+        
     case MAIN_FAIL_OK:
+        while (charac_models) {
+            clear_model(ptr_alloc_callbacks, device.device,
+                        &charac_models->model);
+            charac_models = charac_models->next;
+        }
+
 
         err_code = 0;
     case MAIN_FAIL_MODEL_LOAD:
@@ -1335,9 +1402,7 @@ cleanup_phase:
         clear_model(ptr_alloc_callbacks, device.device,
                     &sphere_model);
         clear_model(ptr_alloc_callbacks, device.device, &cube_model);
-        for (size_t i = 0; i < COUNT_OF(letter_models); ++i)
-            clear_model(ptr_alloc_callbacks, device.device,
-                        letter_models + i);
+
 
 
         ImGui_ImplVulkan_Shutdown();

@@ -276,6 +276,7 @@ GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_of
     //Allocate for CurveNode
     struct AddCurveOutput letter_info =
       add_font_verts(stk_allocr, stk_offset, codepoint);
+ 
 
     //Collect shitnodes
     ShitNode *shit_nodes =
@@ -308,6 +309,7 @@ GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_of
             nptr[-1].children->next = ptr_top;
         }
     }
+
 
 
     
@@ -508,13 +510,7 @@ GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_of
 
 
     }
-
-    //By this point all the top and bottom vertices are added
-
-    //Now add the side vertices
-    //Maybe add points
-
-
+    
 
     model.vertices = letter_info.first_point;
     model.indices = letter_info.indices;
@@ -523,5 +519,24 @@ GenerateModelOutput load_text_character(StackAllocator *stk_allocr,size_t stk_of
     //model.index_count = 3 * face_triangle_count;
     //model.index_count = inx_start - 2 * 3 * face_triangle_count;
     model.vertex_count = vert_start;
+
+    //
+    //   // Shift all x and y pos, and reflect along y
+    //for (size_t i = 0; i < model.vertex_count; ++i) {
+
+
+    //    model.vertices[i].pos.x -= 400;
+    //    model.vertices[i].pos.y -= 400;
+    //    model.vertices[i].pos.y *= -1;
+    //    model.vertices[i].normal.y *= -1;
+    //    model.vertices[i].normal.z *= -1;
+    //}
+
+    //for (size_t i = 0; i < model.index_count; i+=3) {
+    //    swap_stuff(IndexInput, model.indices[i],
+    //               model.indices[i + 1]);
+    //}
+
+
     return model;
 }

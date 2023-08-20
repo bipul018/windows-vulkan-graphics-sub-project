@@ -230,7 +230,7 @@ Mat4 mat4_rotation_XYZ(Vec3 angles) {
     Mat4 ry = mat4_rotation_Y(angles.y);
     Mat4 rz = mat4_rotation_Z(angles.z);
 
-    return mat4_multiply_mat_3(&rx, &ry, &rz);
+    return mat4_multiply_mat_3(&rz, &ry, &rx);
 }
 
 Mat4 mat4_scale_3(float sx, float sy, float sz) {

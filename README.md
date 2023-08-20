@@ -19,6 +19,17 @@ Screenshots:
 
 ![thanks](https://github.com/bipul018/windows-vulkan-graphics-sub-project/assets/83596423/7f65a430-4315-4bab-97e9-fd1161f00f2e)
 
+Triangulation Comparision of Blender's and mine:
+
+Blender's Triangulation:
+![blender triangulation](https://github.com/bipul018/windows-vulkan-graphics-sub-project/assets/83596423/e5295f19-ddab-44f6-bd36-96a2cd989edb)
+
+
+Mine :
+![my triangulation](https://github.com/bipul018/windows-vulkan-graphics-sub-project/assets/83596423/f2993a3c-8e53-46f3-b947-5a8d0b8e79bc)
+
+
+
 Running the exe:
 
 To run the exe after compilation make sure to have the following at the same folder
